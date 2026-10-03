@@ -107,10 +107,6 @@ impl Desktop {
             self.message = "비밀번호를 입력하세요.".into();
             return;
         }
-        if self.mode == Mode::Encrypt && self.password != self.confirmation {
-            self.message = "비밀번호 확인이 일치하지 않습니다.".into();
-            return;
-        }
         let input = match std::fs::canonicalize(self.input_path()) {
             Ok(path) => path,
             Err(e) => {
@@ -353,15 +349,6 @@ impl eframe::App for Desktop {
                 ui.add_space(12.0);
                 ui.label("비밀번호");
                 password_edit(ui, &mut self.password, self.show_password, "password");
-                if self.mode == Mode::Encrypt {
-                    ui.label("비밀번호 확인");
-                    password_edit(
-                        ui,
-                        &mut self.confirmation,
-                        self.show_password,
-                        "confirmation",
-                    );
-                }
                 ui.checkbox(&mut self.show_password, "비밀번호 표시");
                 ui.add_space(12.0);
                 if ui
@@ -454,7 +441,9 @@ fn main() -> eframe::Result {
             .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_icon(icon)
-        .with_resizable(false).with_inner_size([600.0, 500.0]),
+        .with_resizable(false)
+        .with_inner_size([600.0, 500.0])
+        .with_maximize_button(false),
         ..Default::default()
     };
     eframe::run_native(
