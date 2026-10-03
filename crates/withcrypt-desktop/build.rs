@@ -1,5 +1,29 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
+/// `rc.exe` is normally not on PATH in an ordinary PowerShell session. Locate
+/// the newest x64 compiler in a standard Windows SDK installation instead.
+fn msvc_resource_compiler() -> PathBuf {
+    for variable in ["ProgramFiles(x86)", "ProgramFiles"] {
+        let Some(program_files) = env::var_os(variable) else {
+            continue;
+        };
+        let bin = PathBuf::from(program_files).join("Windows Kits/10/bin");
+        let Ok(entries) = fs::read_dir(bin) else {
+            continue;
+        };
+        let mut candidates = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("x64/rc.exe"))
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        candidates.sort();
+        if let Some(path) = candidates.pop() {
+            return path;
+        }
+    }
+    PathBuf::from("rc.exe")
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=../../resources/AppIcon2.ico");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
@@ -17,7 +41,7 @@ fn main() {
 
     let env_name = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     let status = if env_name == "msvc" {
-        Command::new("rc.exe")
+        Command::new(msvc_resource_compiler())
             .current_dir(&out)
             .arg("/nologo")
             .arg(format!("/fo{}", resource.display()))
