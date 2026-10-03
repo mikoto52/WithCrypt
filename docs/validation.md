@@ -42,4 +42,4 @@ RAM 초과 실행의 `/usr/bin/time -l` 최대 RSS: **85,835,776 바이트 (81.8
 - macOS GUI의 직접 자동 클릭/입력은 포커스 동기화 문제로 종단간 성공을 확인하지 못했다. 실행·화면은 확인했고 백그라운드 작업 테스트는 통과했다.
 - 파서 fuzz 대상은 추가했지만 장시간 libFuzzer 캠페인은 수행하지 않았다. `cargo +nightly fuzz run headers`는 별도 선택 검증이며 일반 빌드에 nightly를 요구하지 않는다.
 - 실제 디스크 가득 참, 전원 손실·강제 종료의 crash consistency, 악성 파일시스템, TB 단위 SSD 처리량은 측정하지 않았다. 쓰기 오류는 테스트 Writer로 주입했다.
-- 코드서명·notarization·Windows 인스톨러·Linux 패키지, 독립 보안 감사, 프로젝트 라이선스 결정은 남아 있다.
+- 코드서명·notarization·Windows 인스톨러·Linux 패키지, 독립 보안 감사는 남아 있다. 프로젝트 라이선스는 이후 사용자 결정에 따라 GPL-3.0-or-later로 확정했다.

@@ -56,4 +56,4 @@ cargo run --release --locked -p withcrypt-core --example stress -- 4294967297
 
 자세한 [포맷](docs/format-v1.md), [위협 모델](docs/security.md), [설계 결정](docs/adr/001-implementation.md)을 확인하세요. 코어의 저수준 `decrypt`는 전체 성공 전에 인증된 청크를 Writer에 전달하므로 일반 파일 작업은 반드시 `files::run`을 사용하세요.
 
-프로젝트 라이선스는 사용자 결정 전입니다. 다른 프로젝트의 라이선스를 적용하지 않았습니다. 의존성 라이선스는 각각 유지됩니다.
+WithCrypt는 **GNU General Public License v3.0 or later (GPL-3.0-or-later)**로 배포됩니다. 라이선스 전문은 [LICENSE](LICENSE)를 참조하세요. 의존성에는 각각의 라이선스가 적용됩니다.

@@ -2,7 +2,9 @@
 set -eu
 cargo build --release --locked --workspace
 bundle=dist/macos/WithCrypt.app/Contents
-mkdir -p "$bundle/MacOS"
+mkdir -p "$bundle/MacOS" "$bundle/Resources"
+cp LICENSE "$bundle/Resources/LICENSE"
+cp LICENSE dist/macos/LICENSE
 cp target/release/withcrypt-desktop "$bundle/MacOS/WithCrypt"
 cp target/release/withcrypt dist/macos/withcrypt
 cat > "$bundle/Info.plist" <<'PLIST'

@@ -4,7 +4,7 @@
 
 선택: eframe/egui 0.36.2, rfd 0.17.2. Rust 네이티브 이벤트 루프에서 같은 코어를 호출할 수 있고 Windows/macOS/Linux를 지원한다. MIT OR Apache-2.0(eframe/egui), MIT(rfd) 라이선스를 검토했다. OpenGL glow 렌더러를 사용하고 네트워크 inspection, 웹뷰, persistence 기능은 켜지 않는다.
 
-검토한 대안: [Iced](https://github.com/iced-rs/iced)는 MIT 라이선스의 다른 Rust 후보지만 이 앱의 작은 단일 작업 폼에는 egui의 입력/레이아웃으로 충분하다. [Slint](https://slint.dev/pricing)는 GPLv3·Royalty-Free·상용 선택지의 조건과 사용자 미결정 프로젝트 라이선스의 조합을 추가 검토해야 하므로 이번 선택에서 제외했다. Tauri는 웹뷰와 별도 프런트엔드 배포가 필요해 현재 단일 Rust 코드베이스 목표에서 선택하지 않았다.
+검토한 대안: [Iced](https://github.com/iced-rs/iced)는 MIT 라이선스의 다른 Rust 후보지만 이 앱의 작은 단일 작업 폼에는 egui의 입력/레이아웃으로 충분하다. [Slint](https://slint.dev/pricing)는 GPLv3·Royalty-Free·상용 선택지의 조건과 당시 미결정이었던 프로젝트 라이선스의 조합을 추가 검토해야 하므로 이번 선택에서 제외했다. Tauri는 웹뷰와 별도 프런트엔드 배포가 필요해 현재 단일 Rust 코드베이스 목표에서 선택하지 않았다.
 
 접근성은 eframe의 AccessKit 기능을 명시적으로 켠다. 한글 입력은 winit/egui의 IME 경로를 사용하고 OS의 Apple SD Gothic Neo/Malgun Gothic 또는 Linux Noto CJK/Nanum 글꼴을 로드한다. 글꼴 파일을 프로젝트에 복제하거나 재배포하지 않는다. rfd의 네이티브 파일 선택을 사용하며 실제 PathBuf를 별도 보관하여 비 UTF-8 경로를 표시 문자열로 손실 변환하지 않는다.
 
