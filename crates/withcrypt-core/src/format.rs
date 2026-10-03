@@ -110,18 +110,25 @@ pub(crate) fn increment(value: u64) -> Result<u64> {
 
 pub(crate) fn validate_filename(name: &str) -> Result<()> {
     if name.len() > 4096
-        || name.contains(['/', '\\', '\0', ':'])
+        || name.contains(['/', '\\', ':', '<', '>', '"', '|', '?', '*'])
+        || name.chars().any(char::is_control)
         || name == "."
         || name == ".."
         || name.ends_with(['.', ' '])
     {
         return Err(Error::Format("안전하지 않은 파일명"));
     }
-    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_ascii_uppercase();
     if ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
         || (stem.len() == 4
             && (stem.starts_with("COM") || stem.starts_with("LPT"))
             && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+        || ["COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"].contains(&stem.as_str())
     {
         return Err(Error::Format("예약 파일명"));
     }

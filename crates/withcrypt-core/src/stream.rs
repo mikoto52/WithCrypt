@@ -117,81 +117,114 @@ pub(crate) fn encrypt_header(
         filename: filename.to_owned(),
     })
 }
+/// Authenticated encrypted header. The body is NOT verified until finish succeeds.
+pub(crate) struct Decryption {
+    h: Header,
+    keys: Keys,
+    pub(crate) filename: String,
+}
+impl Decryption {
+    pub(crate) fn begin(
+        r: &mut impl Read,
+        password: &[u8],
+        observer: &mut Observer<'_>,
+    ) -> Result<Self> {
+        let mut raw = [0; 64];
+        exact(r, &mut raw)?;
+        let h = Header::parse(raw)?;
+        notify(observer, Stage::Kdf, 0)?;
+        let keys = Keys::derive(password, &h)?;
+        notify(observer, Stage::Processing, 0)?;
+        let mut rh = [0; 13];
+        exact(r, &mut rh)?;
+        let record = RecordHeader::parse(rh, 0)?;
+        if record.kind != 1 {
+            return Err(Error::Authentication);
+        }
+        let mut data = buffer(record.len + 16)?;
+        exact(r, &mut data)?;
+        keys.crypt(&h, &rh, 0, &mut data, false)?;
+        let len = u16::from_le_bytes([data[0], data[1]]) as usize;
+        if len + 2 != data.len() {
+            return Err(Error::Authentication);
+        }
+        let filename = std::str::from_utf8(&data[2..])
+            .map_err(|_| Error::Authentication)?
+            .to_owned();
+        validate_filename(&filename).map_err(|_| Error::Authentication)?;
+        notify(observer, Stage::Processing, 0)?;
+        Ok(Self { h, keys, filename })
+    }
+    pub(crate) fn finish(
+        self,
+        r: &mut impl Read,
+        w: &mut impl Write,
+        observer: &mut Observer<'_>,
+    ) -> Result<Summary> {
+        let Self {
+            h,
+            mut keys,
+            filename,
+        } = self;
+        let mut expected = 1u64;
+        let mut size = 0u64;
+        let mut count = 0u64;
+        let mut short = false;
+        let mut data = buffer(CHUNK_SIZE)?;
+        loop {
+            notify(observer, Stage::Processing, size)?;
+            let mut rh = [0; 13];
+            exact(r, &mut rh)?;
+            let record = RecordHeader::parse(rh, expected)?;
+            if record.kind == 1 || short && record.kind != 3 {
+                return Err(Error::Authentication);
+            }
+            data.resize(record.len + 16, 0);
+            exact(r, &mut data)?;
+            keys.crypt(&h, &rh, expected, &mut data, false)?;
+            match record.kind {
+                2 => {
+                    size = size
+                        .checked_add(data.len() as u64)
+                        .ok_or(Error::Authentication)?;
+                    count = increment(count)?;
+                    keys.mac.update(&data);
+                    w.write_all(&data)?;
+                    short = data.len() < CHUNK_SIZE;
+                }
+                3 => {
+                    notify(observer, Stage::Verifying, size)?;
+                    if data[..8] != size.to_le_bytes() || data[8..16] != count.to_le_bytes() {
+                        return Err(Error::Authentication);
+                    }
+                    keys.mac
+                        .verify_slice(&data[16..])
+                        .map_err(|_| Error::Authentication)?;
+                    let mut extra = [0; 1];
+                    if fill(r, &mut extra)? != 0 {
+                        return Err(Error::Authentication);
+                    }
+                    notify(observer, Stage::Verifying, size)?;
+                    return Ok(Summary {
+                        suite: h.suite,
+                        original_size: size,
+                        data_chunks: count,
+                        filename,
+                    });
+                }
+                _ => return Err(Error::Authentication),
+            }
+            expected = increment(expected)?;
+        }
+    }
+}
 pub fn decrypt(
     r: &mut impl Read,
     w: &mut impl Write,
     password: &[u8],
     observer: &mut Observer<'_>,
 ) -> Result<Summary> {
-    let mut raw = [0; 64];
-    exact(r, &mut raw)?;
-    let h = Header::parse(raw)?;
-    notify(observer, Stage::Kdf, 0)?;
-    let mut keys = Keys::derive(password, &h)?;
-    let mut expected = 0u64;
-    let mut size = 0u64;
-    let mut count = 0u64;
-    let mut short = false;
-    let mut filename = String::new();
-    let mut data = buffer(CHUNK_SIZE)?;
-    loop {
-        notify(observer, Stage::Processing, size)?;
-        let mut rh = [0; 13];
-        exact(r, &mut rh)?;
-        let record = RecordHeader::parse(rh, expected)?;
-        if expected == 0 && record.kind != 1
-            || expected > 0 && record.kind == 1
-            || short && record.kind != 3
-        {
-            return Err(Error::Authentication);
-        }
-        data.resize(record.len + 16, 0);
-        exact(r, &mut data)?;
-        keys.crypt(&h, &rh, expected, &mut data, false)?;
-        match record.kind {
-            1 => {
-                let len = u16::from_le_bytes([data[0], data[1]]) as usize;
-                if len + 2 != data.len() {
-                    return Err(Error::Authentication);
-                }
-                filename = std::str::from_utf8(&data[2..])
-                    .map_err(|_| Error::Authentication)?
-                    .to_owned();
-                validate_filename(&filename).map_err(|_| Error::Authentication)?;
-            }
-            2 => {
-                size = size
-                    .checked_add(data.len() as u64)
-                    .ok_or(Error::Authentication)?;
-                count = increment(count)?;
-                keys.mac.update(&data);
-                w.write_all(&data)?;
-                short = data.len() < CHUNK_SIZE;
-            }
-            3 => {
-                notify(observer, Stage::Verifying, size)?;
-                if data[..8] != size.to_le_bytes() || data[8..16] != count.to_le_bytes() {
-                    return Err(Error::Authentication);
-                }
-                keys.mac
-                    .verify_slice(&data[16..])
-                    .map_err(|_| Error::Authentication)?;
-                let mut extra = [0; 1];
-                if fill(r, &mut extra)? != 0 {
-                    return Err(Error::Authentication);
-                }
-                notify(observer, Stage::Verifying, size)?;
-                return Ok(Summary {
-                    suite: h.suite,
-                    original_size: size,
-                    data_chunks: count,
-                    filename,
-                });
-            }
-            _ => return Err(Error::Authentication),
-        }
-        expected = increment(expected)?;
-    }
+    Decryption::begin(r, password, observer)?.finish(r, w, observer)
 }
 pub fn verify(r: &mut impl Read, password: &[u8], observer: &mut Observer<'_>) -> Result<Summary> {
     decrypt(r, &mut io::sink(), password, observer)

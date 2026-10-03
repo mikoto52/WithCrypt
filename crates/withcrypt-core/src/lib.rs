@@ -19,6 +19,8 @@ pub enum Error {
     Authentication,
     #[error("비밀번호는 비어 있을 수 없습니다")]
     EmptyPassword,
+    #[error("저장된 원본 파일명이 없습니다. GUI에서 복호화할 파일명을 직접 지정하세요")]
+    MissingFilename,
     #[error("I/O 오류: {0}")]
     Io(#[from] io::Error),
     #[error("키 파생 또는 난수 생성 자원 오류")]
@@ -37,7 +39,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl Error {
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::Format(_) | Self::EmptyPassword => 2,
+            Self::Format(_) | Self::EmptyPassword | Self::MissingFilename => 2,
             Self::Authentication => 3,
             Self::Cancelled => 130,
             _ => 4,
@@ -73,6 +75,6 @@ pub struct Summary {
     pub suite: Suite,
     pub original_size: u64,
     pub data_chunks: u64,
-    /// Informational only. Never use as an output path.
+    /// Authenticated basename. Use files::PreparedDecryption for safe output selection.
     pub filename: String,
 }

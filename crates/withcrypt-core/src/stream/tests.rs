@@ -533,3 +533,124 @@ fn file_transactions() {
         assert!(!out.exists());
     }
 }
+
+#[test]
+fn filename_restore_and_prepared_transaction() {
+    use crate::files::{self, Operation};
+    use std::{fs, path::Path};
+    assert_eq!(
+        files::encrypted_path(Path::new("a.tar.gz")).unwrap(),
+        Path::new("a.tar.gz.esb")
+    );
+    for suite in SUITES {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("한글 파일.tar.gz");
+        fs::write(&source, b"original data").unwrap();
+        files::run(
+            &source,
+            None,
+            PASSWORD,
+            Operation::Encrypt(suite),
+            &mut |_| true,
+        )
+        .unwrap();
+        let encrypted = files::encrypted_path(&source).unwrap();
+        let directory = root.path().join("restore");
+        fs::create_dir(&directory).unwrap();
+        assert!(files::decrypt_into(&encrypted, &directory, b"wrong", &mut |_| true).is_err());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        let mut kdf_calls = 0;
+        let mut observer = |p: Progress| {
+            if p.stage == Stage::Kdf {
+                kdf_calls += 1;
+            }
+            true
+        };
+        let prepared = files::prepare_decryption(&encrypted, PASSWORD, &mut observer).unwrap();
+        assert_eq!(prepared.filename(), "한글 파일.tar.gz");
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        let destination = prepared.output_in(&directory).unwrap();
+        prepared.save(&destination, &mut observer).unwrap();
+        assert_eq!(kdf_calls, 1);
+        assert_eq!(fs::read(&destination).unwrap(), b"original data");
+        assert!(matches!(
+            files::decrypt_into(&encrypted, &directory, PASSWORD, &mut |_| true),
+            Err(Error::OutputExists)
+        ));
+        assert!(matches!(
+            files::decrypt_into(&encrypted, root.path(), PASSWORD, &mut |_| true),
+            Err(Error::OutputExists)
+        ));
+        assert_eq!(fs::read(&source).unwrap(), b"original data");
+
+        let prepared = files::prepare_decryption(&encrypted, PASSWORD, &mut |_| true).unwrap();
+        fs::write(&encrypted, b"changed while choosing a destination").unwrap();
+        let renamed = directory.join("renamed.bin");
+        assert!(matches!(
+            prepared.save(&renamed, &mut |_| true),
+            Err(Error::InputChanged)
+        ));
+        assert!(!renamed.exists());
+
+        let mut corrupted = fixed(suite, b"data");
+        *corrupted.last_mut().unwrap() ^= 1;
+        fs::write(&encrypted, corrupted).unwrap();
+        let prepared = files::prepare_decryption(&encrypted, PASSWORD, &mut |_| true).unwrap();
+        assert_eq!(prepared.filename(), "test.bin");
+        assert!(prepared.save(&renamed, &mut |_| true).is_err());
+        assert!(!renamed.exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn authenticated_filename_validation_and_legacy_empty_name() {
+    use crate::files;
+    use std::fs;
+    for suite in SUITES {
+        let root = tempfile::tempdir().unwrap();
+        let input = root.path().join("input.esb");
+        let h = Header::new(suite, [0x11; 16], [0x22; 16]);
+        let keys = Keys::derive(PASSWORD, &h).unwrap();
+        for name in [
+            "../escape",
+            "/absolute",
+            "a\\b",
+            "CON.txt",
+            "a:b",
+            "foo.",
+            "foo ",
+            "bad\nname",
+            "a?b",
+        ] {
+            let mut bytes = h.bytes().to_vec();
+            let mut meta = (name.len() as u16).to_le_bytes().to_vec();
+            meta.extend_from_slice(name.as_bytes());
+            write_record(&mut bytes, &h, &keys, 1, 0, &mut meta).unwrap();
+            fs::write(&input, bytes).unwrap();
+            assert!(
+                files::prepare_decryption(&input, PASSWORD, &mut |_| true).is_err(),
+                "{name}"
+            );
+        }
+        let mut bytes = Vec::new();
+        encrypt(
+            &mut Cursor::new(b"legacy"),
+            &mut bytes,
+            PASSWORD,
+            suite,
+            "",
+            &mut |_| true,
+        )
+        .unwrap();
+        fs::write(&input, bytes).unwrap();
+        let prepared = files::prepare_decryption(&input, PASSWORD, &mut |_| true).unwrap();
+        assert!(matches!(
+            prepared.output_in(root.path()),
+            Err(Error::MissingFilename)
+        ));
+        let output = root.path().join("chosen.bin");
+        prepared.save(&output, &mut |_| true).unwrap();
+        assert_eq!(fs::read(output).unwrap(), b"legacy");
+    }
+}

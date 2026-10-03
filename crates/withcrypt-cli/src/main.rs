@@ -29,14 +29,18 @@ struct Args {
 enum Commands {
     Encrypt {
         input: PathBuf,
-        #[arg(long)]
-        output: PathBuf,
+        #[arg(long, value_name = "FILE", help = "출력 파일 (생략: 입력파일명.esb)")]
+        output: Option<PathBuf>,
         #[arg(long, value_enum, default_value = "xchacha20-poly1305")]
         algorithm: Algorithm,
     },
     Decrypt {
         input: PathBuf,
-        #[arg(long)]
+        #[arg(
+            long,
+            value_name = "DIRECTORY",
+            help = "원본 파일명으로 복원할 기존 디렉터리"
+        )]
         output: PathBuf,
     },
     Verify {
@@ -84,7 +88,7 @@ fn execute(args: Args) -> Result<(), Error> {
             input,
             output,
             algorithm,
-        } => (input, Some(output), Operation::Encrypt(algorithm.into())),
+        } => (input, output, Operation::Encrypt(algorithm.into())),
         Commands::Decrypt { input, output } => (input, Some(output), Operation::Decrypt),
         Commands::Verify { input } => (input, None, Operation::Verify),
     };
@@ -113,27 +117,42 @@ fn execute(args: Args) -> Result<(), Error> {
     }
     let mut last = None;
     let mut tick = Instant::now();
-    let result = files::run(
-        &input,
-        output.as_deref(),
-        password.as_bytes(),
-        operation,
-        &mut |p| {
-            if last != Some(p.stage) || tick.elapsed() > Duration::from_millis(500) {
-                let label = match p.stage {
-                    Stage::Kdf => "키 파생",
-                    Stage::Processing => "처리",
-                    Stage::Verifying => "검증",
-                    Stage::Committing => "저장",
-                    Stage::Complete => "완료",
-                };
-                eprintln!("{label}: {} 바이트", p.bytes);
-                last = Some(p.stage);
-                tick = Instant::now();
-            }
-            !cancelled.load(Ordering::Relaxed)
-        },
-    )?;
+    let mut observer = |p: withcrypt_core::Progress| {
+        if last != Some(p.stage) || tick.elapsed() > Duration::from_millis(500) {
+            let label = match p.stage {
+                Stage::Kdf => "키 파생",
+                Stage::Processing => "처리",
+                Stage::Verifying => "검증",
+                Stage::Committing => "저장",
+                Stage::Complete => "완료",
+            };
+            eprintln!("{label}: {} 바이트", p.bytes);
+            last = Some(p.stage);
+            tick = Instant::now();
+        }
+        !cancelled.load(Ordering::Relaxed)
+    };
+    let result = if operation == Operation::Decrypt {
+        files::decrypt_into(
+            &input,
+            output.as_deref().ok_or(Error::Format("출력 디렉터리"))?,
+            password.as_bytes(),
+            &mut observer,
+        )
+    } else {
+        files::run(
+            &input,
+            output.as_deref(),
+            password.as_bytes(),
+            operation,
+            &mut observer,
+        )
+    }?;
+    if matches!(operation, Operation::Encrypt(_)) && result.filename.is_empty() {
+        eprintln!(
+            "원본 파일명은 이식 가능한 UTF-8 이름이 아니어서 생략했습니다. GUI에서 복원 파일명을 지정하세요."
+        );
+    }
     println!(
         "성공: {} / {} 바이트",
         result.suite.name(),
@@ -153,6 +172,13 @@ mod tests {
     use super::*;
     #[test]
     fn arguments() {
+        assert!(matches!(
+            Args::try_parse_from(["withcrypt", "encrypt", "in"])
+                .unwrap()
+                .command,
+            Commands::Encrypt { output: None, .. }
+        ));
+        assert!(Args::try_parse_from(["withcrypt", "decrypt", "in"]).is_err());
         let parsed =
             Args::try_parse_from(["withcrypt", "encrypt", "in", "--output", "out.esb"]).unwrap();
         assert!(matches!(

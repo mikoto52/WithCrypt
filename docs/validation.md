@@ -43,3 +43,13 @@ RAM 초과 실행의 `/usr/bin/time -l` 최대 RSS: **85,835,776 바이트 (81.8
 - 파서 fuzz 대상은 추가했지만 장시간 libFuzzer 캠페인은 수행하지 않았다. `cargo +nightly fuzz run headers`는 별도 선택 검증이며 일반 빌드에 nightly를 요구하지 않는다.
 - 실제 디스크 가득 참, 전원 손실·강제 종료의 crash consistency, 악성 파일시스템, TB 단위 SSD 처리량은 측정하지 않았다. 쓰기 오류는 테스트 Writer로 주입했다.
 - 코드서명·notarization·Windows 인스톨러·Linux 패키지, 독립 보안 감사는 남아 있다. 프로젝트 라이선스는 이후 의존성 확인과 사용자 결정에 따라 MIT로 변경했다.
+
+## 2026-10-03 — 원본 파일명 복원 및 저장 대화상자 변경
+
+macOS 로컬에서 `cargo test --workspace --locked` 17개 테스트(코어 13, CLI 2, GUI 2), `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check`를 통과했다. 두 알고리즘의 기존 고정 벡터를 유지했다.
+
+추가 검증: 암호화 기본 경로, 한글·공백·다중 확장자 원래 이름 복원, META 준비와 저장 사이 KDF 1회, 기존 파일·원본 보호, 저장 선택 중 입력 변경, META가 정상이어도 FINAL 변조 시 결과 미생성 및 임시 파일 정리, 인증된 악성 basename 거부, 빈 이름의 기존 파일에 명시적 저장 이름 지정.
+
+GUI 테스트는 저장 대화상자 함수를 주입하여 두 알고리즘의 기본 파일명·사용자 이름 변경·취소·잘못된 비밀번호 때 대화상자 미호출을 확인했다. 실제 OS 대화상자를 직접 클릭하는 검증은 이번 변경에서 실행하지 않았다. Windows/Linux 실행도 이번 검증 범위에 포함하지 않는다.
+
+`WITHCRYPT_TEST_BINARY=/Users/akira/sources/WithCrypt/target/debug/withcrypt python3 tests/cli_smoke.py`로 실제 PTY에서 두 알고리즘 암호화·검증·디렉터리 복호화, 비밀번호 에코 방지·오류·Ctrl-C·덮어쓰기 방지, 기본 암호화 파일명 및 출력 파일 경로의 디렉터리 오용 거부를 통과했다. PTY 접근은 샌드박스 밖에서 실행했다. 릴리스 앱 패키징 및 커밋·푸시는 수행하지 않았다.

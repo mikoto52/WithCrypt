@@ -3,7 +3,7 @@ use crate::*;
 use std::{
     fs::{self, File, Metadata},
     io::{self, BufReader, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +74,98 @@ fn restrict_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// No output overwrite or input deletion. The output argument is always explicit.
+/// Append .esb without removing the input extension, including non-UTF-8 paths.
+pub fn encrypted_path(input: &Path) -> Result<PathBuf> {
+    let mut name = input
+        .file_name()
+        .ok_or(Error::Format("입력 파일명"))?
+        .to_os_string();
+    name.push(".esb");
+    Ok(input.with_file_name(name))
+}
+fn open_input(input: &Path) -> Result<(File, Metadata)> {
+    if !fs::metadata(input)?.is_file() {
+        return Err(Error::Format("일반 파일만 지원합니다"));
+    }
+    let file = File::open(input)?;
+    let before = file.metadata()?;
+    if !before.is_file() {
+        return Err(Error::Format("일반 파일만 지원합니다"));
+    }
+    Ok((file, before))
+}
+/// Holds the same open input and derived keys between name authentication and save.
+/// No plaintext output exists yet. Dropping this value cancels the prepared operation.
+pub struct PreparedDecryption {
+    input: PathBuf,
+    before: Metadata,
+    reader: BufReader<File>,
+    state: stream::Decryption,
+}
+impl PreparedDecryption {
+    /// Only META has been authenticated; the whole file still needs validation.
+    pub fn filename(&self) -> &str {
+        &self.state.filename
+    }
+    /// Resolve the authenticated basename in an existing user-selected directory.
+    pub fn output_in(&self, directory: &Path) -> Result<PathBuf> {
+        if self.filename().is_empty() {
+            return Err(Error::MissingFilename);
+        }
+        format::validate_filename(self.filename())?;
+        if !directory.is_dir() {
+            return Err(Error::Format("--output은 기존 출력 디렉터리여야 합니다"));
+        }
+        Ok(fs::canonicalize(directory)?.join(self.filename()))
+    }
+    /// Explicit file destination, including a GUI-selected replacement filename.
+    pub fn save(mut self, output: &Path, observer: &mut Observer<'_>) -> Result<Summary> {
+        let source = self.reader.get_ref().try_clone()?;
+        check_unchanged(&source, &self.input, &self.before)?;
+        output_transaction(
+            &self.input,
+            &source,
+            &self.before,
+            output,
+            observer,
+            |writer, observer| self.state.finish(&mut self.reader, writer, observer),
+        )
+    }
+}
+pub fn prepare_decryption(
+    input: &Path,
+    password: &[u8],
+    observer: &mut Observer<'_>,
+) -> Result<PreparedDecryption> {
+    if password.is_empty() {
+        return Err(Error::EmptyPassword);
+    }
+    // Freeze relative paths before the GUI opens a native save dialog.
+    let input = fs::canonicalize(input)?;
+    let (file, before) = open_input(&input)?;
+    let mut reader = BufReader::new(file);
+    let state = stream::Decryption::begin(&mut reader, password, observer)?;
+    check_unchanged(reader.get_ref(), &input, &before)?;
+    Ok(PreparedDecryption {
+        input,
+        before,
+        reader,
+        state,
+    })
+}
+/// CLI restore: --output is a directory, filename comes only from authenticated META.
+pub fn decrypt_into(
+    input: &Path,
+    directory: &Path,
+    password: &[u8],
+    observer: &mut Observer<'_>,
+) -> Result<Summary> {
+    let prepared = prepare_decryption(input, password, observer)?;
+    let output = prepared.output_in(directory)?;
+    prepared.save(&output, observer)
+}
+/// Transactional file API. Encryption defaults to <input filename>.esb.
+/// Decrypt here accepts an explicit filename; use decrypt_into for CLI directories.
 pub fn run(
     input: &Path,
     output: Option<&Path>,
@@ -85,14 +176,14 @@ pub fn run(
     if password.is_empty() {
         return Err(Error::EmptyPassword);
     }
-    if !fs::metadata(input)?.is_file() {
-        return Err(Error::Format("일반 파일만 지원합니다"));
+    if operation == Operation::Decrypt {
+        return prepare_decryption(input, password, observer)?.save(
+            output.ok_or(Error::Format("출력 경로가 필요합니다"))?,
+            observer,
+        );
     }
-    let file = File::open(input)?;
-    let before = file.metadata()?;
-    if !before.is_file() {
-        return Err(Error::Format("일반 파일만 지원합니다"));
-    }
+    let (file, before) = open_input(input)?;
+    let source = file.try_clone()?;
     let mut reader = BufReader::new(file);
     if operation == Operation::Verify {
         let summary = verify(&mut reader, password, observer)?;
@@ -104,7 +195,41 @@ pub fn run(
         });
         return Ok(summary);
     }
-    let output = output.ok_or(Error::Format("출력 경로가 필요합니다"))?;
+    let default_output;
+    let output = match output {
+        Some(path) => path,
+        None => {
+            default_output = encrypted_path(input)?;
+            &default_output
+        }
+    };
+    let Operation::Encrypt(suite) = operation else {
+        return Err(Error::Format("암호화 작업"));
+    };
+    let name = input.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let name = if format::validate_filename(name).is_ok() {
+        name
+    } else {
+        ""
+    };
+    output_transaction(
+        input,
+        &source,
+        &before,
+        output,
+        observer,
+        |writer, observer| encrypt(&mut reader, writer, password, suite, name, observer),
+    )
+}
+fn output_transaction(
+    input: &Path,
+    source: &File,
+    before: &Metadata,
+    output: &Path,
+    observer: &mut Observer<'_>,
+    process: impl FnOnce(&mut File, &mut Observer<'_>) -> Result<Summary>,
+) -> Result<Summary> {
+    notify(observer, Stage::Processing, 0)?;
     match fs::symlink_metadata(output) {
         Ok(_) => return Err(Error::OutputExists),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -127,25 +252,12 @@ pub fn run(
     let result: Result<Summary> = (|| {
         restrict_directory(tempdir.path())?;
         let mut temp = tempfile::NamedTempFile::new_in(tempdir.path())?;
-        let name = input.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        // Optional metadata: omit names not representable safely on all targets.
-        let name = if format::validate_filename(name).is_ok() {
-            name
-        } else {
-            ""
-        };
-        let summary = match operation {
-            Operation::Encrypt(suite) => {
-                encrypt(&mut reader, &mut temp, password, suite, name, observer)?
-            }
-            Operation::Decrypt => decrypt(&mut reader, &mut temp, password, observer)?,
-            Operation::Verify => unreachable!(),
-        };
-        check_unchanged(reader.get_ref(), input, &before)?;
+        let summary = process(temp.as_file_mut(), observer)?;
+        check_unchanged(source, input, before)?;
         temp.flush()?;
         temp.as_file().sync_all()?;
         notify(observer, Stage::Committing, summary.original_size)?;
-        check_unchanged(reader.get_ref(), input, &before)?;
+        check_unchanged(source, input, before)?;
         // hard_link creates the destination atomically and fails if it exists.
         // The temp file is on the same filesystem. No check-then-rename fallback.
         fs::hard_link(temp.path(), &output).map_err(|e| {

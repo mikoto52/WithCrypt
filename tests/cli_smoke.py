@@ -8,7 +8,7 @@ import termios
 import time
 from pathlib import Path
 
-EXE = str(Path(__file__).resolve().parents[1] / "target/release/withcrypt")
+EXE = os.environ.get("WITHCRYPT_TEST_BINARY", str(Path(__file__).resolve().parents[1] / "target/release/withcrypt"))
 PASSWORD = "공개 CLI 테스트 123".encode()
 
 def run(args, passwords, expected=0):
@@ -50,14 +50,24 @@ with tempfile.TemporaryDirectory(prefix="withcrypt-cli-") as directory:
     source.write_bytes(data)
     for suite in ["xchacha20-poly1305", "aes-256-gcm"]:
         encrypted = root / (suite+".esb")
-        restored = root / (suite+".bin")
+        destination = root / suite
+        destination.mkdir()
+        restored = destination / source.name
         run(["encrypt", source, "--output", encrypted, "--algorithm", suite], [PASSWORD, PASSWORD])
         run(["verify", encrypted], [PASSWORD])
-        run(["decrypt", encrypted, "--output", restored], [b"wrong"], 3)
+        run(["decrypt", encrypted, "--output", destination], [b"wrong"], 3)
         assert not restored.exists()
-        run(["decrypt", encrypted, "--output", restored], [PASSWORD])
+        run(["decrypt", encrypted, "--output", destination], [PASSWORD])
         assert restored.read_bytes() == source.read_bytes() == data
-        run(["decrypt", encrypted, "--output", restored], [PASSWORD], 4)
+        run(["decrypt", encrypted, "--output", destination], [PASSWORD], 4)
         assert restored.read_bytes() == data
         run(["verify", encrypted], [b"\x03"], 130)
         print(f"{suite}: real TTY encrypt/verify/decrypt, no echo, bad password, no-clobber passed")
+
+    default_output = Path(str(source) + ".esb")
+    run(["encrypt", source], [PASSWORD, PASSWORD])
+    assert default_output.is_file()
+    run(["decrypt", default_output, "--output", source], [PASSWORD], 2)
+    run(["decrypt", default_output, "--output", root], [PASSWORD], 4)
+    assert source.read_bytes() == data
+    print("default encryption path and directory-only restoration passed")
