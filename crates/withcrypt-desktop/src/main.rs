@@ -450,7 +450,7 @@ fn configure(ctx: &egui::Context) {
 }
 fn main() -> eframe::Result {
     let icon =
-        eframe::icon_data::from_png_bytes(include_bytes!("../../../resources/program_icon.png"))
+        eframe::icon_data::from_png_bytes(include_bytes!("../../../resources/ProgramIcon.png"))
             .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_icon(icon),

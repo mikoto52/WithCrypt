@@ -5,7 +5,7 @@ bundle=dist/macos/WithCrypt.app/Contents
 mkdir -p "$bundle/MacOS" "$bundle/Resources"
 cp LICENSE "$bundle/Resources/LICENSE"
 cp LICENSE dist/macos/LICENSE
-cp resources/program_icon.icns "$bundle/Resources/WithCrypt.icns"
+cp resources/AppIcon.icns "$bundle/Resources/WithCrypt.icns"
 cp target/release/withcrypt-desktop "$bundle/MacOS/WithCrypt"
 cp target/release/withcrypt dist/macos/withcrypt
 cat > "$bundle/Info.plist" <<'PLIST'
