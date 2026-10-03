@@ -49,6 +49,7 @@ struct Desktop {
     worker: Option<Worker>,
     prepared: Option<Box<files::PreparedDecryption>>,
     closing: bool,
+    logo: Option<egui::TextureHandle>,
 }
 impl Desktop {
     fn input_path(&self) -> PathBuf {
@@ -291,126 +292,451 @@ impl eframe::App for Desktop {
         if self.closing && self.worker.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.add_space(16.0);
-            ui.heading(egui::RichText::new("WithCrypt").size(32.0));
-            ui.label("파일은 그대로, 내용은 비공개로.");
-            ui.add_space(20.0);
-            let busy = self.worker.is_some();
-            ui.add_enabled_ui(!busy, |ui| {
+        let pal = Palette::of(ui.visuals().dark_mode);
+        if self.logo.is_none()
+            && let Ok(icon) = eframe::icon_data::from_png_bytes(LOGO)
+        {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [icon.width as usize, icon.height as usize],
+                &icon.rgba,
+            );
+            let options = egui::TextureOptions {
+                mipmap_mode: Some(egui::TextureFilter::Linear),
+                ..egui::TextureOptions::LINEAR
+            };
+            self.logo = Some(ctx.load_texture("logo", image, options));
+        }
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(pal.bg)
+                    .inner_margin(egui::Margin::symmetric(28, 18)),
+            )
+            .show(ui, |ui| {
+                // Header
                 ui.horizontal(|ui| {
+                    if let Some(logo) = &self.logo {
+                        ui.add(egui::Image::new((logo.id(), egui::vec2(36.0, 36.0))));
+                        ui.add_space(4.0);
+                    }
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(
+                            egui::RichText::new("WithCrypt")
+                                .size(22.0)
+                                .strong()
+                                .color(pal.text),
+                        );
+                        ui.label(
+                            egui::RichText::new("파일은 그대로, 내용은 비공개로.")
+                                .size(13.0)
+                                .color(pal.muted),
+                        );
+                    });
+                });
+                ui.add_space(12.0);
+                let busy = self.worker.is_some();
+                ui.add_enabled_ui(!busy, |ui| {
                     let old = self.mode;
-                    ui.selectable_value(&mut self.mode, Mode::Encrypt, "암호화");
-                    ui.selectable_value(&mut self.mode, Mode::Decrypt, "복호화");
-                    ui.selectable_value(&mut self.mode, Mode::Verify, "검증");
+                    segmented(
+                        ui,
+                        &pal,
+                        &mut self.mode,
+                        &[
+                            (Mode::Encrypt, "암호화"),
+                            (Mode::Decrypt, "복호화"),
+                            (Mode::Verify, "검증"),
+                        ],
+                    );
                     if old != self.mode {
                         self.preview_header();
                         self.message.clear();
                     }
-                });
-                ui.add_space(16.0);
-                ui.label("입력 파일");
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut self.input)
-                                .desired_width(450.0)
-                                .hint_text("파일을 선택하세요"),
-                        )
-                        .changed()
-                    {
-                        self.selected_input = None;
-                        self.preview_header();
-                    }
-                    if ui.button("찾아보기…").clicked()
-                        && let Some(path) = rfd::FileDialog::new().pick_file()
-                    {
-                        self.input = path.to_string_lossy().into_owned();
-                        self.selected_input = Some(path);
-                        self.preview_header();
-                    }
-                });
-                ui.add_space(12.0);
-                if self.mode == Mode::Encrypt {
-                    ui.label("암호화 알고리즘");
-                    egui::ComboBox::from_id_salt("suite")
-                        .selected_text(self.suite.name())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.suite,
-                                Suite::XChaCha20Poly1305,
-                                "XChaCha20-Poly1305 (기본)",
-                            );
-                            ui.selectable_value(&mut self.suite, Suite::Aes256Gcm, "AES-256-GCM");
+                    ui.add_space(10.0);
+                    card(&pal).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        field_label(ui, &pal, "입력 파일");
+                        ui.horizontal(|ui| {
+                            let browse_width = 92.0;
+                            let width =
+                                ui.available_width() - browse_width - ui.spacing().item_spacing.x;
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut self.input)
+                                        .desired_width(width)
+                                        .min_size(egui::vec2(0.0, FIELD_HEIGHT))
+                                        .margin(egui::Margin::symmetric(10, 8))
+                                        .hint_text("파일을 선택하거나 경로를 입력하세요"),
+                                )
+                                .changed()
+                            {
+                                self.selected_input = None;
+                                self.preview_header();
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new("찾아보기…")
+                                        .min_size(egui::vec2(browse_width, FIELD_HEIGHT)),
+                                )
+                                .clicked()
+                                && let Some(path) = rfd::FileDialog::new().pick_file()
+                            {
+                                self.input = path.to_string_lossy().into_owned();
+                                self.selected_input = Some(path);
+                                self.preview_header();
+                            }
                         });
-                } else {
-                    ui.label(&self.preview);
-                }
-                ui.add_space(12.0);
-                ui.label("비밀번호");
-                password_edit(ui, &mut self.password, self.show_password, "password");
-                ui.checkbox(&mut self.show_password, "비밀번호 표시");
-                ui.add_space(12.0);
-                if ui
-                    .add_sized(
-                        [160.0, 38.0],
-                        egui::Button::new(match self.mode {
-                            Mode::Encrypt => "암호화 시작",
-                            Mode::Decrypt => "복호화 시작",
-                            Mode::Verify => "전체 검증 시작",
-                        }),
-                    )
-                    .clicked()
-                {
-                    self.start(&ctx);
-                }
-            });
-            ui.add_space(16.0);
-            if let Some(worker) = &self.worker {
-                if let Ok(p) = worker.progress.lock() {
-                    let stage = match p.stage {
-                        Stage::Kdf => "키 파생 중",
-                        Stage::Processing => "파일 처리 중",
-                        Stage::Verifying => "무결성 검증 중",
-                        Stage::Committing => "결과 저장 중",
-                        Stage::Complete => "완료",
+                        ui.add_space(8.0);
+                        if self.mode == Mode::Encrypt {
+                            field_label(ui, &pal, "암호화 알고리즘");
+                            let width = ui.available_width();
+                            ui.spacing_mut().interact_size.y = FIELD_HEIGHT;
+                            egui::ComboBox::from_id_salt("suite")
+                                .width(width)
+                                .height(120.0)
+                                .selected_text(self.suite.name())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.suite,
+                                        Suite::XChaCha20Poly1305,
+                                        "XChaCha20-Poly1305 (기본)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.suite,
+                                        Suite::Aes256Gcm,
+                                        "AES-256-GCM",
+                                    );
+                                });
+                        } else {
+                            field_label(ui, &pal, "파일 정보");
+                            let (text, color) = if self.preview.is_empty() {
+                                ("ESB 파일을 선택하면 헤더 정보가 표시됩니다", pal.muted)
+                            } else if self.preview.starts_with("ESB") {
+                                (self.preview.as_str(), pal.warning)
+                            } else {
+                                (self.preview.as_str(), pal.text)
+                            };
+                            egui::Frame::new()
+                                .fill(pal.field)
+                                .stroke(egui::Stroke::new(1.0, pal.border))
+                                .corner_radius(RADIUS)
+                                .inner_margin(egui::Margin::symmetric(10, 0))
+                                .show(ui, |ui| {
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(ui.available_width(), FIELD_HEIGHT - 2.0),
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            ui.set_min_size(ui.max_rect().size());
+                                            ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(text).color(color),
+                                                )
+                                                .truncate(),
+                                            );
+                                        },
+                                    );
+                                });
+                        }
+                        ui.add_space(8.0);
+                        field_label(ui, &pal, "비밀번호");
+                        ui.horizontal(|ui| {
+                            let toggle_width = 64.0;
+                            let width =
+                                ui.available_width() - toggle_width - ui.spacing().item_spacing.x;
+                            password_edit(ui, &mut self.password, self.show_password, "password", width);
+                            if ui
+                                .add(
+                                    egui::Button::new(if self.show_password {
+                                        "숨기기"
+                                    } else {
+                                        "표시"
+                                    })
+                                    .selected(self.show_password)
+                                    .min_size(egui::vec2(toggle_width, FIELD_HEIGHT)),
+                                )
+                                .on_hover_text("비밀번호 표시")
+                                .clicked()
+                            {
+                                self.show_password = !self.show_password;
+                            }
+                        });
+                    });
+                    ui.add_space(12.0);
+                    let label = match self.mode {
+                        Mode::Encrypt => "암호화 시작",
+                        Mode::Decrypt => "복호화 시작",
+                        Mode::Verify => "전체 검증 시작",
                     };
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label(format!("{stage} · {:.1} MiB", p.bytes as f64 / 1048576.0));
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 40.0],
+                            egui::Button::new(
+                                egui::RichText::new(label)
+                                    .size(15.0)
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(pal.accent)
+                            .stroke(egui::Stroke::NONE)
+                            .corner_radius(RADIUS),
+                        )
+                        .clicked()
+                    {
+                        self.start(&ctx);
+                    }
+                });
+                ui.add_space(10.0);
+                if let Some(worker) = &self.worker {
+                    let cancelling = worker.cancel.load(Ordering::Relaxed);
+                    status_frame(pal.accent).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            if cancelling {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "안전하게 취소하는 중입니다. 키 파생이 끝날 때까지 잠시 기다려 주세요.",
+                                    )
+                                    .color(pal.text),
+                                );
+                            } else if let Ok(p) = worker.progress.lock() {
+                                let stage = match p.stage {
+                                    Stage::Kdf => "키 파생 중",
+                                    Stage::Processing => "파일 처리 중",
+                                    Stage::Verifying => "무결성 검증 중",
+                                    Stage::Committing => "결과 저장 중",
+                                    Stage::Complete => "완료",
+                                };
+                                ui.label(egui::RichText::new(stage).strong().color(pal.text));
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.1} MiB",
+                                        p.bytes as f64 / 1048576.0
+                                    ))
+                                    .color(pal.muted),
+                                );
+                            }
+                            if !cancelling {
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button("취소").clicked() {
+                                        worker.cancel.store(true, Ordering::Relaxed);
+                                    }
+                                });
+                            }
+                        });
+                    });
+                    ctx.request_repaint_after(Duration::from_millis(100));
+                } else if !self.message.is_empty() {
+                    let color = if self.message.starts_with("완료") {
+                        pal.success
+                    } else if self.prepared.is_some() || self.message.contains("취소") {
+                        pal.accent
+                    } else {
+                        pal.danger
+                    };
+                    status_frame(color).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(egui::RichText::new(&self.message).color(pal.text));
+                    });
+                } else {
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new(
+                                "원본 파일은 보존됩니다 · 기존 출력 파일은 덮어쓰지 않습니다",
+                            )
+                            .size(11.5)
+                            .color(pal.muted),
+                        );
                     });
                 }
-                if ui.button("취소").clicked() {
-                    worker.cancel.store(true, Ordering::Relaxed);
-                }
-                if worker.cancel.load(Ordering::Relaxed) {
-                    ui.label(
-                        "안전하게 취소하는 중입니다. 키 파생이 끝날 때까지 잠시 기다려 주세요.",
-                    );
-                }
-                ctx.request_repaint_after(Duration::from_millis(100));
-            }
-            if !self.message.is_empty() {
-                ui.separator();
-                ui.label(&self.message);
-            }
-            ui.add_space(16.0);
-            ui.label(
-                egui::RichText::new("원본 파일은 보존됩니다. 기존 출력 파일은 덮어쓰지 않습니다.")
-                    .small(),
-            );
-        });
+            });
     }
 }
-fn password_edit(ui: &mut egui::Ui, text: &mut String, show: bool, id: &str) {
+const LOGO: &[u8] = include_bytes!("../../../resources/ProgramIcon.png");
+const RADIUS: u8 = 8;
+const FIELD_HEIGHT: f32 = 32.0;
+#[derive(Clone, Copy)]
+struct Palette {
+    bg: egui::Color32,
+    surface: egui::Color32,
+    field: egui::Color32,
+    border: egui::Color32,
+    text: egui::Color32,
+    muted: egui::Color32,
+    accent: egui::Color32,
+    accent_hover: egui::Color32,
+    success: egui::Color32,
+    warning: egui::Color32,
+    danger: egui::Color32,
+}
+impl Palette {
+    fn of(dark: bool) -> Self {
+        use egui::Color32 as C;
+        if dark {
+            Self {
+                bg: C::from_rgb(0x12, 0x14, 0x1a),
+                surface: C::from_rgb(0x1b, 0x1e, 0x26),
+                field: C::from_rgb(0x14, 0x16, 0x1d),
+                border: C::from_rgb(0x2c, 0x31, 0x3c),
+                text: C::from_rgb(0xe8, 0xea, 0xef),
+                muted: C::from_rgb(0x8b, 0x92, 0xa1),
+                accent: C::from_rgb(0x5b, 0x6c, 0xf9),
+                accent_hover: C::from_rgb(0x72, 0x81, 0xfb),
+                success: C::from_rgb(0x34, 0xc7, 0x7b),
+                warning: C::from_rgb(0xf2, 0xb3, 0x4b),
+                danger: C::from_rgb(0xf0, 0x5d, 0x5e),
+            }
+        } else {
+            Self {
+                bg: C::from_rgb(0xf4, 0xf5, 0xf8),
+                surface: C::WHITE,
+                field: C::from_rgb(0xf8, 0xf9, 0xfb),
+                border: C::from_rgb(0xdd, 0xe1, 0xe8),
+                text: C::from_rgb(0x1a, 0x1d, 0x24),
+                muted: C::from_rgb(0x6b, 0x72, 0x80),
+                accent: C::from_rgb(0x4f, 0x5b, 0xe8),
+                accent_hover: C::from_rgb(0x43, 0x4e, 0xd6),
+                success: C::from_rgb(0x1f, 0x9d, 0x5c),
+                warning: C::from_rgb(0xc2, 0x7c, 0x0e),
+                danger: C::from_rgb(0xd9, 0x3a, 0x3b),
+            }
+        }
+    }
+}
+fn card(pal: &Palette) -> egui::Frame {
+    egui::Frame::new()
+        .fill(pal.surface)
+        .stroke(egui::Stroke::new(1.0, pal.border))
+        .corner_radius(12)
+        .inner_margin(egui::Margin::same(14))
+}
+fn status_frame(color: egui::Color32) -> egui::Frame {
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.12))
+        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
+        .corner_radius(RADIUS)
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .outer_margin(egui::Margin::ZERO)
+}
+fn field_label(ui: &mut egui::Ui, pal: &Palette, text: &str) {
+    ui.label(
+        egui::RichText::new(text)
+            .size(12.5)
+            .strong()
+            .color(pal.muted),
+    );
+    ui.add_space(2.0);
+}
+fn segmented(ui: &mut egui::Ui, pal: &Palette, value: &mut Mode, options: &[(Mode, &str)]) {
+    egui::Frame::new()
+        .fill(pal.field)
+        .stroke(egui::Stroke::new(1.0, pal.border))
+        .corner_radius(10)
+        .inner_margin(egui::Margin::same(3))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let gaps = ui.spacing().item_spacing.x * (options.len() - 1) as f32;
+            let width = (ui.available_width() - gaps) / options.len() as f32;
+            ui.horizontal(|ui| {
+                for &(mode, text) in options {
+                    let selected = *value == mode;
+                    let label = egui::RichText::new(text).size(14.0);
+                    let button = if selected {
+                        egui::Button::new(label.strong().color(egui::Color32::WHITE))
+                            .fill(pal.accent)
+                    } else {
+                        egui::Button::new(label.color(pal.muted)).frame_when_inactive(false)
+                    };
+                    if ui
+                        .add(
+                            button
+                                .stroke(egui::Stroke::NONE)
+                                .corner_radius(RADIUS - 1)
+                                .min_size(egui::vec2(width, 30.0)),
+                        )
+                        .clicked()
+                    {
+                        *value = mode;
+                    }
+                }
+            });
+        });
+}
+fn password_edit(ui: &mut egui::Ui, text: &mut String, show: bool, id: &str, width: f32) {
     let mut output = egui::TextEdit::singleline(text)
         .password(!show)
         .id_salt(id)
-        .desired_width(450.0)
+        .desired_width(width)
+        .min_size(egui::vec2(0.0, FIELD_HEIGHT))
+        .margin(egui::Margin::symmetric(10, 8))
+        .hint_text("비밀번호")
         .show(ui);
     // Do not retain plaintext password history in the framework's undo buffer.
     output.state.clear_undoer();
     output.state.store(ui.ctx(), output.response.id);
+}
+fn apply_style(style: &mut egui::Style, pal: &Palette) {
+    use egui::{FontFamily::Proportional, FontId, Stroke, TextStyle};
+    style.text_styles = [
+        (TextStyle::Heading, FontId::new(22.0, Proportional)),
+        (TextStyle::Body, FontId::new(14.0, Proportional)),
+        (TextStyle::Button, FontId::new(14.0, Proportional)),
+        (TextStyle::Small, FontId::new(11.5, Proportional)),
+        (
+            TextStyle::Monospace,
+            FontId::new(13.0, egui::FontFamily::Monospace),
+        ),
+    ]
+    .into();
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    style.spacing.interact_size.y = 30.0;
+    let v = &mut style.visuals;
+    v.panel_fill = pal.bg;
+    v.window_fill = pal.surface;
+    v.window_stroke = Stroke::new(1.0, pal.border);
+    v.window_corner_radius = 10.into();
+    v.menu_corner_radius = RADIUS.into();
+    v.extreme_bg_color = pal.field;
+    v.text_edit_bg_color = Some(pal.field);
+    v.faint_bg_color = pal.surface;
+    v.override_text_color = None;
+    v.hyperlink_color = pal.accent;
+    v.selection.bg_fill = pal.accent.gamma_multiply(0.35);
+    v.selection.stroke = Stroke::new(1.5, pal.accent);
+    v.warn_fg_color = pal.warning;
+    v.error_fg_color = pal.danger;
+    let w = &mut v.widgets;
+    w.noninteractive.bg_fill = pal.surface;
+    w.noninteractive.weak_bg_fill = pal.surface;
+    w.noninteractive.bg_stroke = Stroke::new(1.0, pal.border);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, pal.text);
+    w.inactive.bg_fill = pal.field;
+    w.inactive.weak_bg_fill = pal.field;
+    w.inactive.bg_stroke = Stroke::new(1.0, pal.border);
+    w.inactive.fg_stroke = Stroke::new(1.0, pal.text);
+    w.hovered.bg_fill = pal.field;
+    w.hovered.weak_bg_fill = pal.border.gamma_multiply(0.6);
+    w.hovered.bg_stroke = Stroke::new(1.0, pal.accent_hover.gamma_multiply(0.7));
+    w.hovered.fg_stroke = Stroke::new(1.5, pal.text);
+    w.active.bg_fill = pal.field;
+    w.active.weak_bg_fill = pal.border;
+    w.active.bg_stroke = Stroke::new(1.0, pal.accent);
+    w.active.fg_stroke = Stroke::new(1.5, pal.text);
+    w.open.bg_fill = pal.field;
+    w.open.weak_bg_fill = pal.field;
+    w.open.bg_stroke = Stroke::new(1.0, pal.accent);
+    w.open.fg_stroke = Stroke::new(1.0, pal.text);
+    for visuals in [
+        &mut w.noninteractive,
+        &mut w.inactive,
+        &mut w.hovered,
+        &mut w.active,
+        &mut w.open,
+    ] {
+        visuals.corner_radius = RADIUS.into();
+        visuals.expansion = 0.0;
+    }
 }
 fn configure(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -434,16 +760,20 @@ fn configure(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        let pal = Palette::of(theme == egui::Theme::Dark);
+        ctx.style_mut_of(theme, |style| apply_style(style, &pal));
+    }
 }
 fn main() -> eframe::Result {
-    let icon =
-        eframe::icon_data::from_png_bytes(include_bytes!("../../../resources/ProgramIcon.png"))
-            .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
+    let icon = eframe::icon_data::from_png_bytes(LOGO)
+        .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_icon(icon)
-        .with_resizable(false)
-        .with_inner_size([600.0, 500.0])
-        .with_maximize_button(false),
+        viewport: egui::ViewportBuilder::default()
+            .with_icon(icon)
+            .with_resizable(false)
+            .with_inner_size([600.0, 500.0])
+            .with_maximize_button(false),
         ..Default::default()
     };
     eframe::run_native(
