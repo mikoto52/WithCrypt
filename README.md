@@ -34,11 +34,13 @@ CLI 암호화의 `--output`은 선택 사항이며 생략하면 원본과 같은
 모든 파일(`.esb` 제외)에 "WithCrypt로 암호화", `.esb` 파일에 "WithCrypt로 복호화" 메뉴를 추가할 수 있습니다. 메뉴로 실행하면 비밀번호만 묻는 작은 창이 뜨고, 저장 위치를 묻지 않고 원본과 같은 폴더에 결과를 만듭니다(암호화: `<원본파일명>.esb`, 복호화: 저장된 원본 파일명). 같은 이름의 파일이 이미 있으면 덮어쓰지 않고 오류로 멈춥니다.
 
 ```powershell
-withcrypt-desktop.exe --register-shell    # 클래식 메뉴 등록 (HKCU, 관리자 권한 불필요)
-withcrypt-desktop.exe --unregister-shell  # 해제
+withcrypt-shell-setup.exe register                 # 클래식 + Windows 11 새 메뉴 등록
+withcrypt-shell-setup.exe register --classic-only  # 클래식 메뉴만 (HKCU, 관리자 권한 불필요)
+withcrypt-shell-setup.exe status
+withcrypt-shell-setup.exe unregister
 ```
 
-Windows 11의 새 메뉴(최상위)는 서명된 sparse package가 필요합니다. `docs/distribution.md`와 `scripts/package-windows-shell.ps1`을 참고하세요.
+Windows 11의 새 메뉴(최상위)는 sparse package `WithCrypt.Shell.msix`가 같은 폴더에 있어야 합니다. 코드 서명 전에는 `scripts/package-windows-shell.ps1 -Unsigned`로 서명 없는 테스트용 패키지를 만들 수 있습니다. 자세한 내용은 `docs/distribution.md`를 참고하세요.
 
 복호화 결과는 진행 중에도 최종 파일 이름으로 보입니다. "완료"가 표시되기 전의 파일은 아직 전체 검증 전이므로 사용하지 마세요.
 

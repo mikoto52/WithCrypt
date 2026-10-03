@@ -4101,7 +4101,6 @@ dependencies = [
  "eframe",
  "rfd",
  "tempfile",
- "windows-registry",
  "withcrypt-core",
  "zeroize",
 ]
@@ -4112,6 +4111,13 @@ version = "0.1.0"
 dependencies = [
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "withcrypt-shell-setup"
+version = "0.1.0"
+dependencies = [
+ "windows-registry",
 ]
 
 [[package]]

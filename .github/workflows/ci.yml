@@ -38,6 +38,7 @@ jobs:
             target/release/withcrypt.exe
             target/release/withcrypt-desktop.exe
             target/release/withcrypt_shell.dll
+            target/release/withcrypt-shell-setup.exe
   audit:
     runs-on: ubuntu-latest
     steps:

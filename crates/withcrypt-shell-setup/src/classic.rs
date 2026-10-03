@@ -2,6 +2,7 @@
 //! Windows 11 shows these under "Show more options"; the packaged
 //! `withcrypt-shell` COM handler covers the new top-level menu.
 use std::path::Path;
+use windows_registry::CURRENT_USER;
 
 pub struct Entry {
     pub key: &'static str,
@@ -26,6 +27,7 @@ pub const ENTRIES: [Entry; 2] = [
         applies_to: None,
     },
 ];
+const NOT_FOUND: i32 = 0x8007_0002_u32 as i32;
 
 pub fn command_line(exe: &str, flag: &str) -> String {
     format!("\"{exe}\" {flag} \"%1\"")
@@ -41,10 +43,8 @@ fn exe_string(exe: &Path) -> Result<&str, String> {
     Ok(exe)
 }
 
-#[cfg(windows)]
-pub fn register(exe: &Path) -> Result<(), String> {
-    use windows_registry::CURRENT_USER;
-    let exe = exe_string(exe)?;
+pub fn register(desktop: &Path) -> Result<(), String> {
+    let exe = exe_string(desktop)?;
     let result = (|| -> windows_registry::Result<()> {
         for entry in &ENTRIES {
             let key = CURRENT_USER.create(entry.key)?;
@@ -59,32 +59,26 @@ pub fn register(exe: &Path) -> Result<(), String> {
         }
         Ok(())
     })();
-    result.map_err(|e| format!("탐색기 메뉴 등록 실패: {}", e.message()))
+    result.map_err(|e| e.message())
 }
 
-#[cfg(windows)]
 pub fn unregister() -> Result<(), String> {
-    use windows_registry::CURRENT_USER;
-    const NOT_FOUND: i32 = 0x8007_0002_u32 as i32;
     for entry in &ENTRIES {
         match CURRENT_USER.remove_tree(entry.key) {
             Ok(()) => {}
             Err(e) if e.code().0 == NOT_FOUND => {}
-            Err(e) => return Err(format!("탐색기 메뉴 해제 실패: {}", e.message())),
+            Err(e) => return Err(e.message()),
         }
     }
     Ok(())
 }
 
-#[cfg(not(windows))]
-pub fn register(exe: &Path) -> Result<(), String> {
-    exe_string(exe)?;
-    Err("탐색기 메뉴는 Windows 전용입니다".into())
-}
-
-#[cfg(not(windows))]
-pub fn unregister() -> Result<(), String> {
-    Err("탐색기 메뉴는 Windows 전용입니다".into())
+/// The registered command line for the encrypt verb, if any.
+pub fn registered_command() -> Option<String> {
+    CURRENT_USER
+        .open(format!(r"{}\command", ENTRIES[0].key))
+        .and_then(|key| key.get_string(""))
+        .ok()
 }
 
 #[cfg(test)]

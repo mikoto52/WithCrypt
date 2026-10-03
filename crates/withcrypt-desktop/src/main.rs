@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 use eframe::egui;
-mod shell_menu;
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -1094,18 +1093,14 @@ fn configure(ctx: &egui::Context) {
         ctx.style_mut_of(theme, |style| apply_style(style, &pal));
     }
 }
-const USAGE: &str = "사용법: withcrypt-desktop [--encrypt 파일 | --decrypt 파일 | --register-shell | --unregister-shell]";
+const USAGE: &str = "사용법: withcrypt-desktop [--encrypt 파일 | --decrypt 파일]\n탐색기 메뉴 등록·해제는 withcrypt-shell-setup을 사용하세요.";
 enum Launch {
     Window,
     Shell(Mode, PathBuf),
-    Register,
-    Unregister,
 }
 fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
     match args {
         [] => Some(Launch::Window),
-        [flag] if flag.as_os_str() == "--register-shell" => Some(Launch::Register),
-        [flag] if flag.as_os_str() == "--unregister-shell" => Some(Launch::Unregister),
         [flag, path] if flag.as_os_str() == "--encrypt" => {
             Some(Launch::Shell(Mode::Encrypt, path.into()))
         }
@@ -1115,44 +1110,17 @@ fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
         _ => None,
     }
 }
-fn notice(text: &str, error: bool) {
-    rfd::MessageDialog::new()
-        .set_title("WithCrypt")
-        .set_description(text)
-        .set_level(if error {
-            rfd::MessageLevel::Error
-        } else {
-            rfd::MessageLevel::Info
-        })
-        .show();
-}
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let (app, size) = match parse_launch(&args) {
         Some(Launch::Window) => (Desktop::default(), [600.0, 548.0]),
         Some(Launch::Shell(mode, path)) => (Desktop::for_shell(mode, path), [480.0, 512.0]),
-        Some(Launch::Register) => {
-            let result = std::env::current_exe()
-                .map_err(|e| e.to_string())
-                .and_then(|exe| shell_menu::register(&exe));
-            match result {
-                Ok(()) => notice(
-                    "탐색기 메뉴를 등록했습니다.\nWindows 11에서는 '더 많은 옵션 표시' 안에 나타납니다.",
-                    false,
-                ),
-                Err(e) => notice(&e, true),
-            }
-            return Ok(());
-        }
-        Some(Launch::Unregister) => {
-            match shell_menu::unregister() {
-                Ok(()) => notice("탐색기 메뉴를 해제했습니다.", false),
-                Err(e) => notice(&e, true),
-            }
-            return Ok(());
-        }
         None => {
-            notice(USAGE, true);
+            rfd::MessageDialog::new()
+                .set_title("WithCrypt")
+                .set_description(USAGE)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return Ok(());
         }
     };
@@ -1226,10 +1194,7 @@ mod tests {
             parse_launch(&args(&["--decrypt", "a.esb"])),
             Some(Launch::Shell(Mode::Decrypt, _))
         ));
-        assert!(matches!(
-            parse_launch(&args(&["--register-shell"])),
-            Some(Launch::Register)
-        ));
+        assert!(parse_launch(&args(&["--register-shell"])).is_none());
         assert!(parse_launch(&args(&["--encrypt"])).is_none());
         assert!(parse_launch(&args(&["--verify", "a.esb"])).is_none());
     }

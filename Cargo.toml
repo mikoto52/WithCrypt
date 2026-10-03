@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/withcrypt-core", "crates/withcrypt-cli", "crates/withcrypt-desktop", "crates/withcrypt-shell"]
+members = ["crates/withcrypt-core", "crates/withcrypt-cli", "crates/withcrypt-desktop", "crates/withcrypt-shell", "crates/withcrypt-shell-setup"]
 default-members = ["crates/withcrypt-core", "crates/withcrypt-cli"]
 resolver = "2"
 

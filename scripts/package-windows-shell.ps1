@@ -1,33 +1,50 @@
 <#
 .SYNOPSIS
-Builds and signs the sparse package for the Windows 11 top-level Explorer menu.
+Builds the sparse package for the Windows 11 top-level Explorer menu.
 
 .DESCRIPTION
 The package holds only the manifest and logos. withcrypt-desktop.exe and
-withcrypt_shell.dll stay in -InstallDir (the external location). Windows only
-installs signed packages, so -Publisher must equal the certificate subject and
-the certificate must be trusted on the machine. The classic menu
-(withcrypt-desktop.exe --register-shell) needs none of this.
+withcrypt_shell.dll stay in -InstallDir (the external location), and the
+finished WithCrypt.Shell.msix is copied there too so withcrypt-shell-setup.exe
+can register it.
+
+-Unsigned (Windows 11 only) uses Microsoft's test publisher OID and skips
+signing; withcrypt-shell-setup installs it with Add-AppxPackage -AllowUnsigned.
+Use it until code signing is set up, not for wide distribution. Signed builds
+need -Publisher equal to the certificate subject and a trusted certificate.
 
 .EXAMPLE
-cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell
-.\scripts\package-windows-shell.ps1 -Publisher "CN=WithCrypt" -CertificatePath .\withcrypt.pfx -Install
+cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup
+.\scripts\package-windows-shell.ps1 -Unsigned
+.\target\release\withcrypt-shell-setup.exe register
+
+.EXAMPLE
+.\scripts\package-windows-shell.ps1 -Publisher "CN=WithCrypt" -CertificatePath .\withcrypt.pfx
 #>
 param(
-    [Parameter(Mandatory = $true)][string]$Publisher,
-    [Parameter(Mandatory = $true)][string]$CertificatePath,
+    [switch]$Unsigned,
+    [string]$Publisher,
+    [string]$CertificatePath,
     [SecureString]$CertificatePassword,
     [string]$InstallDir = (Join-Path $PSScriptRoot "..\target\release"),
     [string]$OutDir = (Join-Path $PSScriptRoot "..\target\msix"),
-    [string]$Version = "0.1.0.0",
-    [switch]$Install
+    [string]$Version = "0.1.0.0"
 )
 $ErrorActionPreference = "Stop"
+# Required in the publisher of every unsigned package; see
+# https://learn.microsoft.com/windows/msix/package/unsigned-package
+$unsignedOid = "OID.2.25.311729368913984317654407730594956997722=1"
+if ($Unsigned) {
+    if (-not $Publisher) { $Publisher = "CN=WithCrypt Dev" }
+    if ($Publisher -notmatch [regex]::Escape($unsignedOid)) { $Publisher = "$Publisher, $unsignedOid" }
+} elseif (-not $Publisher -or -not $CertificatePath) {
+    throw "Pass -Publisher and -CertificatePath, or -Unsigned until code signing is set up."
+}
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $InstallDir = (Resolve-Path $InstallDir).Path
 foreach ($file in "withcrypt-desktop.exe", "withcrypt_shell.dll") {
     if (-not (Test-Path (Join-Path $InstallDir $file))) {
-        throw "$file not found in $InstallDir. Run: cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell"
+        throw "$file not found in $InstallDir. Run: cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup"
     }
 }
 $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\makeappx.exe" |
@@ -63,22 +80,18 @@ try {
 
 $msix = Join-Path $OutDir "WithCrypt.Shell.msix"
 # /nv: a sparse package intentionally omits the executables it references.
-& $makeappx pack /d $stage /p $msix /nv /o
+& $makeappx pack /d $stage /p $msix /nv /o | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed ($LASTEXITCODE)" }
-$signArgs = @("sign", "/fd", "SHA256", "/f", (Resolve-Path $CertificatePath).Path)
-if ($CertificatePassword) {
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($CertificatePassword)
-    try { $signArgs += @("/p", [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)) }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+if (-not $Unsigned) {
+    $signArgs = @("sign", "/fd", "SHA256", "/f", (Resolve-Path $CertificatePath).Path)
+    if ($CertificatePassword) {
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($CertificatePassword)
+        try { $signArgs += @("/p", [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    }
+    & $signtool @signArgs $msix
+    if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
 }
-& $signtool @signArgs $msix
-if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
-
-if ($Install) {
-    Add-AppxPackage -Path $msix -ExternalLocation $InstallDir
-    Write-Host "Installed. Restart Explorer if the menu does not appear yet."
-} else {
-    Write-Host "Package: $msix"
-    Write-Host "Install: Add-AppxPackage -Path `"$msix`" -ExternalLocation `"$InstallDir`""
-}
-Write-Host "Remove:  Get-AppxPackage WithCrypt.ShellExtension | Remove-AppxPackage"
+Copy-Item $msix (Join-Path $InstallDir "WithCrypt.Shell.msix") -Force
+Write-Host "Package: $msix ($(if ($Unsigned) { 'unsigned' } else { 'signed' }))"
+Write-Host "Copied to $InstallDir. Register: withcrypt-shell-setup.exe register"
