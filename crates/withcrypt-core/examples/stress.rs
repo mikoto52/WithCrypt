@@ -7,6 +7,7 @@ use std::{
     time::Instant,
 };
 use withcrypt_core::{Suite, encrypt, verify};
+// Endless-looking input produced on the fly (0xA5 bytes).
 struct Generated {
     remaining: u64,
 }
@@ -18,6 +19,7 @@ impl Read for Generated {
         Ok(n)
     }
 }
+// Sends written bytes to another thread through a bounded channel.
 struct PipeWriter(mpsc::SyncSender<Vec<u8>>);
 impl Write for PipeWriter {
     fn write(&mut self, b: &[u8]) -> io::Result<usize> {

@@ -1,5 +1,8 @@
 //! Shared CLI/desktop transactions. Output is written in place and removed unless
 //! the whole operation, including final authentication, succeeds.
+//!
+//! Guarantees: the input is never modified; an existing file is never
+//! overwritten; a failed, cancelled or unauthenticated run leaves no output.
 use crate::*;
 use std::{
     fs::{self, File, Metadata, OpenOptions},
@@ -7,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// What [`run`] should do with the input file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     Encrypt(Suite),
@@ -19,6 +23,10 @@ fn file_path_handle(file: &File) -> io::Result<same_file::Handle> {
     same_file::Handle::from_file(file.try_clone()?)
 }
 
+/// Fails with `InputChanged` if the input was modified, replaced or renamed
+/// since it was opened. It compares size, modification time and file identity
+/// (plus ctime on Unix). This catches ordinary concurrent edits; it is not a
+/// snapshot and cannot see a change that restores every one of these values.
 fn check_unchanged(file: &File, input: &Path, before: &Metadata) -> Result<()> {
     let after = file.metadata()?;
     let opened = file_path_handle(file)?;
@@ -36,6 +44,9 @@ fn check_unchanged(file: &File, input: &Path, before: &Metadata) -> Result<()> {
     Ok(())
 }
 
+/// Windows: limit the new output file to the current user before any content
+/// is written (Unix gets the same effect from mode 0600 at creation).
+/// Inherited permissions are removed and only the process SID gets access.
 #[cfg(windows)]
 fn restrict_file(path: &Path) -> Result<()> {
     use std::process::Command;
@@ -46,6 +57,7 @@ fn restrict_file(path: &Path) -> Result<()> {
     if !identity.status.success() {
         return Err(Error::Resource);
     }
+    // Output looks like "DOMAIN\user","S-1-5-21-..."; take the last field.
     let text = String::from_utf8_lossy(&identity.stdout);
     let sid = text
         .trim()
@@ -53,6 +65,7 @@ fn restrict_file(path: &Path) -> Result<()> {
         .next_back()
         .ok_or(Error::Resource)?
         .trim_matches('"');
+    // Only pass a well-formed SID on to icacls.
     if !sid.starts_with("S-1-")
         || !sid
             .bytes()
@@ -84,11 +97,14 @@ pub fn encrypted_path(input: &Path) -> Result<PathBuf> {
     name.push(".esb");
     Ok(input.with_file_name(name))
 }
+/// Opens a regular file (not a directory or device) and records its metadata
+/// so later checks can tell whether it changed.
 fn open_input(input: &Path) -> Result<(File, Metadata)> {
     if !fs::metadata(input)?.is_file() {
         return Err(Error::Format("일반 파일만 지원합니다"));
     }
     let file = File::open(input)?;
+    // Check again on the opened handle, in case the path changed in between.
     let before = file.metadata()?;
     if !before.is_file() {
         return Err(Error::Format("일반 파일만 지원합니다"));
@@ -122,6 +138,7 @@ impl PreparedDecryption {
     /// Explicit file destination, including a GUI-selected replacement filename.
     pub fn save(mut self, output: &Path, observer: &mut Observer<'_>) -> Result<Summary> {
         let source = self.reader.get_ref().try_clone()?;
+        // The user may have spent a while in the save dialog; re-check the input.
         check_unchanged(&source, &self.input, &self.before)?;
         output_transaction(
             &self.input,
@@ -133,6 +150,8 @@ impl PreparedDecryption {
         )
     }
 }
+/// First half of decryption: derive keys and authenticate the stored filename.
+/// A wrong password fails here without creating any file.
 pub fn prepare_decryption(
     input: &Path,
     password: &[u8],
@@ -187,6 +206,7 @@ pub fn run(
     let source = file.try_clone()?;
     let mut reader = BufReader::new(file);
     if operation == Operation::Verify {
+        // Verify writes nothing, so it needs no output transaction.
         let summary = verify(&mut reader, password, observer)?;
         check_unchanged(reader.get_ref(), input, &before)?;
         notify(observer, Stage::Verifying, summary.original_size)?;
@@ -207,6 +227,8 @@ pub fn run(
     let Operation::Encrypt(suite) = operation else {
         return Err(Error::Format("암호화 작업"));
     };
+    // Store the original name only if it is portable; otherwise store none
+    // and let the user choose a name when decrypting.
     let name = input.file_name().and_then(|s| s.to_str()).unwrap_or("");
     let name = if format::validate_filename(name).is_ok() {
         name
@@ -222,6 +244,14 @@ pub fn run(
         |writer, observer| encrypt(&mut reader, writer, password, suite, name, observer),
     )
 }
+/// Creates `output`, lets `process` write into it, and keeps it only if every
+/// step succeeds (ADR-005). Steps:
+/// 1. Exclusively create the file (never overwrite) and restrict its access.
+/// 2. Run `process` (encrypt, or decrypt including final authentication).
+/// 3. Re-check the input, flush and fsync, report `Committing`, re-check again.
+/// 4. Confirm the path still names the file we created.
+///
+/// Any failure removes the partial file. Success is final.
 fn output_transaction(
     input: &Path,
     source: &File,
@@ -231,6 +261,7 @@ fn output_transaction(
     process: impl FnOnce(&mut File, &mut Observer<'_>) -> Result<Summary>,
 ) -> Result<Summary> {
     notify(observer, Stage::Processing, 0)?;
+    // Resolve the parent directory once so later checks use a stable path.
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -253,6 +284,8 @@ fn output_transaction(
             Error::Io(e)
         }
     })?;
+    // Identity of the file we just created, used to avoid deleting or
+    // trusting a different file that later appears at the same path.
     let created = file_path_handle(&file)?;
     let result: Result<Summary> = (|| {
         restrict_file(&output)?;
@@ -267,6 +300,7 @@ fn output_transaction(
         }
         Ok(summary)
     })();
+    // Close our handle before any removal (required on Windows).
     drop(file);
     let summary = match result {
         Ok(summary) => summary,
@@ -280,6 +314,7 @@ fn output_transaction(
         }
     };
     // After commit, cancellation never removes the saved file.
+    // On Unix, also fsync the directory so the new name survives a crash.
     #[cfg(unix)]
     File::open(&parent)?
         .sync_all()
@@ -290,6 +325,8 @@ fn output_transaction(
     });
     Ok(summary)
 }
+/// Deletes the unfinished output, but only if `output` is still the exact
+/// file this run created.
 fn remove_partial(output: &Path, created: &same_file::Handle) -> io::Result<()> {
     match same_file::Handle::from_path(output) {
         Ok(current) if current == *created => {

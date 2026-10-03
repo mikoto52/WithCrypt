@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+//! `withcrypt` command-line tool: encrypt, decrypt and verify ESB files.
+//! Passwords are only read interactively from the terminal, never from
+//! arguments, environment variables or pipes.
 use clap::{Parser, Subcommand, ValueEnum};
 use std::{
     io::{self, IsTerminal},
@@ -47,6 +50,7 @@ enum Commands {
         input: PathBuf,
     },
 }
+// `--algorithm` values; mapped to the core `Suite`.
 #[derive(Clone, Copy, ValueEnum)]
 enum Algorithm {
     #[value(name = "xchacha20-poly1305")]
@@ -62,6 +66,9 @@ impl From<Algorithm> for Suite {
         }
     }
 }
+/// Reads a password without echo. Raw mode is enabled before the prompt is
+/// shown so even fast pasted input is never echoed, and the guard restores the
+/// terminal on every exit path.
 fn prompt_secret(prompt: &str) -> Result<Zeroizing<String>, Error> {
     // Disable terminal echo BEFORE displaying the prompt, including fast paste.
     crossterm::terminal::enable_raw_mode()?;
@@ -82,6 +89,7 @@ fn prompt_secret(prompt: &str) -> Result<Zeroizing<String>, Error> {
         }
     })
 }
+/// Runs one command: prompt for the password, then hand off to the core file API.
 fn execute(args: Args) -> Result<(), Error> {
     let (input, output, operation) = match args.command {
         Commands::Encrypt {
@@ -92,11 +100,13 @@ fn execute(args: Args) -> Result<(), Error> {
         Commands::Decrypt { input, output } => (input, Some(output), Operation::Decrypt),
         Commands::Verify { input } => (input, None, Operation::Verify),
     };
+    // Refuse scripted use so passwords never travel through pipes or files.
     if !io::stdin().is_terminal() {
         return Err(Error::Format(
             "비대화형 실행은 지원하지 않습니다. 터미널에서 실행하세요",
         ));
     }
+    // Ctrl-C sets a flag that the progress observer reports back as "cancel".
     let cancelled = Arc::new(AtomicBool::new(false));
     let signal = cancelled.clone();
     ctrlc::set_handler(move || signal.store(true, Ordering::Relaxed))
@@ -105,6 +115,7 @@ fn execute(args: Args) -> Result<(), Error> {
     if password.is_empty() {
         return Err(Error::EmptyPassword);
     }
+    // A typo in a new password would make the file unrecoverable: ask twice.
     if matches!(operation, Operation::Encrypt(_)) {
         let confirmation = prompt_secret("비밀번호 확인: ")?;
         if *password != *confirmation {
@@ -117,6 +128,7 @@ fn execute(args: Args) -> Result<(), Error> {
     }
     let mut last = None;
     let mut tick = Instant::now();
+    // Print progress on stage changes and at most every 500 ms.
     let mut observer = |p: withcrypt_core::Progress| {
         if last != Some(p.stage) || tick.elapsed() > Duration::from_millis(500) {
             let label = match p.stage {
@@ -132,6 +144,7 @@ fn execute(args: Args) -> Result<(), Error> {
         }
         !cancelled.load(Ordering::Relaxed)
     };
+    // Decrypt restores into a directory using the authenticated stored name.
     let result = if operation == Operation::Decrypt {
         files::decrypt_into(
             &input,

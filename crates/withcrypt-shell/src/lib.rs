@@ -40,14 +40,17 @@ pub const ENCRYPT_CLSID: GUID = GUID::from_u128(0x1d78f081_7dff_47ce_88db_a06e5e
 pub const DECRYPT_CLSID: GUID = GUID::from_u128(0x02856102_e872_4e51_95a7_9ad715345703);
 /// Each item opens its own password window; refuse larger selections.
 const MAX_ITEMS: usize = 16;
+/// The app this DLL launches; it must sit in the same folder.
 const DESKTOP_EXE: &str = "withcrypt-desktop.exe";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Which menu entry a COM object represents (one CLSID per entry).
 enum Verb {
     Encrypt,
     Decrypt,
 }
 impl Verb {
+    /// Maps a CLSID requested by Explorer to its menu entry.
     fn from_clsid(clsid: &GUID) -> Option<Self> {
         if *clsid == ENCRYPT_CLSID {
             Some(Self::Encrypt)
@@ -57,18 +60,21 @@ impl Verb {
             None
         }
     }
+    /// Also returned as the command's canonical name.
     fn clsid(self) -> GUID {
         match self {
             Self::Encrypt => ENCRYPT_CLSID,
             Self::Decrypt => DECRYPT_CLSID,
         }
     }
+    /// Menu text shown in Explorer.
     fn title(self) -> &'static str {
         match self {
             Self::Encrypt => "WithCrypt로 암호화",
             Self::Decrypt => "WithCrypt로 복호화",
         }
     }
+    /// Command-line flag passed to `withcrypt-desktop.exe`.
     fn flag(self) -> &'static str {
         match self {
             Self::Encrypt => "--encrypt",
@@ -85,11 +91,14 @@ impl Verb {
             Self::Decrypt => esb,
         }
     }
+    /// True when every selected item fits this entry and the selection is small enough.
     fn applies_to(self, paths: &[PathBuf]) -> bool {
         !paths.is_empty() && paths.len() <= MAX_ITEMS && paths.iter().all(|p| self.accepts(p))
     }
 }
 
+/// File-system paths of the items selected in Explorer. Oversized selections
+/// return placeholder entries only so the caller can reject them by count.
 fn selected_paths(items: &IShellItemArray) -> Result<Vec<PathBuf>> {
     // SAFETY: `items` is a live interface supplied by Explorer for this call.
     let count = unsafe { items.GetCount()? } as usize;
@@ -127,18 +136,22 @@ fn desktop_exe() -> Result<PathBuf> {
     Ok(PathBuf::from(OsString::from_wide(&buffer[..len])).with_file_name(DESKTOP_EXE))
 }
 
+/// Copies `text` into a COM-allocated string, as IExplorerCommand requires.
 fn co_string(text: &str) -> Result<PWSTR> {
     // SAFETY: SHStrDupW copies into CoTaskMem; Explorer frees it.
     unsafe { SHStrDupW(&HSTRING::from(text)) }
 }
 
 #[implement(IExplorerCommand)]
+/// One context-menu entry. Explorer asks it for a title, an icon and a
+/// visibility state, and calls `Invoke` when the user clicks it.
 struct ExplorerCommand(Verb);
 
 impl IExplorerCommand_Impl for ExplorerCommand_Impl {
     fn GetTitle(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
         co_string(self.0.title())
     }
+    /// Icon resource string: the desktop app's first icon.
     fn GetIcon(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
         co_string(&format!("{},0", desktop_exe()?.display()))
     }
@@ -148,6 +161,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
     fn GetCanonicalName(&self) -> Result<GUID> {
         Ok(self.0.clsid())
     }
+    /// Shows the entry only for selections it can handle; hides it otherwise.
     fn GetState(&self, items: Ref<IShellItemArray>, _ok_to_be_slow: BOOL) -> Result<u32> {
         let visible = items
             .ok()
@@ -155,6 +169,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
             .is_ok_and(|paths| self.0.applies_to(&paths));
         Ok(if visible { ECS_ENABLED } else { ECS_HIDDEN }.0 as u32)
     }
+    /// Starts one `withcrypt-desktop.exe --encrypt|--decrypt <file>` per item.
     fn Invoke(&self, items: Ref<IShellItemArray>, _bind: Ref<IBindCtx>) -> Result<()> {
         let paths = selected_paths(items.ok()?)?;
         if !self.0.applies_to(&paths) {
@@ -179,6 +194,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
 }
 
 #[implement(IClassFactory)]
+/// COM class factory: creates `ExplorerCommand` objects for one entry.
 struct Factory(Verb);
 
 impl IClassFactory_Impl for Factory_Impl {

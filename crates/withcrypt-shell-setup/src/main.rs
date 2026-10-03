@@ -7,6 +7,7 @@ mod classic;
 #[cfg(windows)]
 mod modern;
 
+/// Printed for unknown or missing arguments.
 const USAGE: &str = "\
 사용법: withcrypt-shell-setup <명령>
 
@@ -18,12 +19,14 @@ const USAGE: &str = "\
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(windows), allow(dead_code))]
+/// A parsed command line.
 enum Command {
     Register { classic_only: bool },
     Unregister,
     Status,
 }
 
+/// Accepts exactly the forms listed in `USAGE`.
 fn parse(args: &[String]) -> Option<Command> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         ["register"] => Some(Command::Register {
@@ -37,8 +40,10 @@ fn parse(args: &[String]) -> Option<Command> {
 }
 
 #[cfg(windows)]
+/// Executes a command and prints one line per step. Returns false on any failure.
 fn run(command: Command) -> bool {
     use std::path::PathBuf;
+    // Everything is resolved relative to this executable's folder.
     let dir = match std::env::current_exe() {
         Ok(exe) => exe.parent().map(PathBuf::from).unwrap_or_default(),
         Err(e) => {
@@ -72,6 +77,7 @@ fn run(command: Command) -> bool {
                 return ok;
             }
             let package = dir.join(modern::PACKAGE_FILE);
+            // The package points Explorer at the DLL, so both must be present.
             let missing = [package.clone(), dir.join("withcrypt_shell.dll")]
                 .into_iter()
                 .find(|path| !path.is_file());
@@ -122,6 +128,7 @@ fn run(_command: Command) -> bool {
     false
 }
 
+/// Exit codes: 0 = success, 1 = a step failed, 2 = bad arguments.
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(command) = parse(&args) else {

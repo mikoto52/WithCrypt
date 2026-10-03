@@ -1,7 +1,10 @@
 use super::*;
 use std::io::Cursor;
+// Spaces, Hangul, emoji and a combining accent: passwords are raw bytes,
+// never trimmed or normalized.
 const PASSWORD: &[u8] = "  한글 비밀번호 🔒 e\u{301}  ".as_bytes();
 const SUITES: [Suite; 2] = [Suite::XChaCha20Poly1305, Suite::Aes256Gcm];
+// Encrypts with a fixed salt and nonce prefix, giving reproducible bytes.
 fn fixed(suite: Suite, input: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     encrypt_header(
@@ -15,6 +18,7 @@ fn fixed(suite: Suite, input: &[u8]) -> Vec<u8> {
     .unwrap();
     out
 }
+// Asserts that decryption fails and writes no plaintext.
 fn rejects(bytes: &[u8]) {
     assert!(
         decrypt(
@@ -26,6 +30,7 @@ fn rejects(bytes: &[u8]) {
         .is_err()
     );
 }
+// Splits a container into its raw records (header bytes excluded).
 fn records(bytes: &[u8]) -> Vec<Vec<u8>> {
     let mut result = Vec::new();
     let mut pos = 64;
@@ -37,6 +42,7 @@ fn records(bytes: &[u8]) -> Vec<Vec<u8>> {
     result
 }
 #[test]
+// Empty, tiny, chunk-boundary and multi-chunk inputs survive a round trip.
 fn roundtrips_boundaries_both_suites() {
     for suite in SUITES {
         for len in [
@@ -65,6 +71,7 @@ fn roundtrips_boundaries_both_suites() {
     }
 }
 #[test]
+// Same input encrypts differently every time; a wrong password fails at META.
 fn password_randomness_and_early_authentication() {
     for suite in SUITES {
         let input = b"original bytes";
@@ -112,6 +119,7 @@ fn password_randomness_and_early_authentication() {
     }
 }
 #[test]
+// Flipped, dropped, duplicated, reordered or foreign records are all rejected.
 fn structural_and_authenticated_tampering() {
     for suite in SUITES {
         let original = fixed(suite, b"payload");
@@ -180,6 +188,8 @@ fn structural_and_authenticated_tampering() {
     }
 }
 #[test]
+// FINAL with wrong totals, or DATA after a short chunk, is rejected even
+// when the record itself is correctly encrypted.
 fn authenticated_invalid_final_and_short_chunk_sequence() {
     for suite in SUITES {
         let original = fixed(suite, b"payload");
@@ -209,6 +219,7 @@ fn authenticated_invalid_final_and_short_chunk_sequence() {
     }
 }
 #[test]
+// Record headers with out-of-range lengths or indexes are rejected up front.
 fn bounded_parser_and_overflow() {
     assert!(increment(u64::MAX).is_err());
     for kind in 0..=255 {
@@ -227,6 +238,7 @@ fn bounded_parser_and_overflow() {
 }
 
 #[test]
+// A bad header fails before the expensive key derivation starts.
 fn malformed_header_never_reaches_kdf() {
     for suite in SUITES {
         let header = Header::new(suite, [0; 16], [0; 16]);
@@ -252,6 +264,8 @@ fn malformed_header_never_reaches_kdf() {
 }
 
 #[test]
+// A corrupt file leaves no output; a successful save is not undone by a
+// late "cancel" from the observer.
 fn corrupt_final_never_publishes_and_commit_is_final() {
     use crate::files::{Operation, run};
     use std::fs;
@@ -298,6 +312,7 @@ fn corrupt_final_never_publishes_and_commit_is_final() {
 
 #[cfg(unix)]
 #[test]
+// Never writes through a symlink; reports unwritable directories as errors.
 fn symlink_and_permission_protection() {
     use crate::files::{Operation, run};
     use std::{
@@ -333,6 +348,7 @@ fn symlink_and_permission_protection() {
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(result.is_err());
 }
+// Reader that alternates `Interrupted` errors with short reads.
 struct ShortReader {
     data: Cursor<Vec<u8>>,
     interrupt: bool,
@@ -347,6 +363,7 @@ impl Read for ShortReader {
         self.data.read(&mut out[..len])
     }
 }
+// Writer that accepts at most 71 bytes per call.
 struct ShortWriter(Vec<u8>);
 impl Write for ShortWriter {
     fn write(&mut self, b: &[u8]) -> io::Result<usize> {
@@ -358,6 +375,7 @@ impl Write for ShortWriter {
         Ok(())
     }
 }
+// Writer that always fails, like a full disk.
 struct BrokenWriter;
 impl Write for BrokenWriter {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {
@@ -368,6 +386,7 @@ impl Write for BrokenWriter {
     }
 }
 #[test]
+// Short or interrupted I/O still works; write errors and cancellation surface.
 fn short_io_failure_and_cancellation() {
     for suite in SUITES {
         let input = vec![42; 8193];
@@ -408,6 +427,8 @@ fn short_io_failure_and_cancellation() {
     }
 }
 #[test]
+// Per-record keys differ, the HMAC matches an independent one, and the
+// output equals the checked-in test vectors.
 fn key_separation_hmac_and_vectors() {
     for suite in SUITES {
         let h = Header::new(suite, [0x11; 16], [0x22; 16]);
@@ -437,6 +458,8 @@ fn key_separation_hmac_and_vectors() {
 }
 
 #[test]
+// The files API: no overwrite, no aliasing the input, cleanup on failure,
+// and detection of changes to the input or output during the run.
 fn file_transactions() {
     use crate::files::{Operation, run};
     use std::fs;
@@ -548,6 +571,8 @@ fn file_transactions() {
 }
 
 #[test]
+// Decrypt restores the stored name, runs Argon2 once across both halves,
+// and refuses to save if the input changes while the user picks a location.
 fn filename_restore_and_prepared_transaction() {
     use crate::files::{self, Operation};
     use std::{fs, path::Path};
@@ -617,6 +642,7 @@ fn filename_restore_and_prepared_transaction() {
 }
 
 #[test]
+// Unsafe stored names are rejected; files without a stored name still decrypt.
 fn authenticated_filename_validation_and_legacy_empty_name() {
     use crate::files;
     use std::fs;

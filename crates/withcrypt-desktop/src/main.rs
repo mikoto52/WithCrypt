@@ -1,5 +1,11 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+//! WithCrypt desktop app (egui). One `Desktop` state drives two windows:
+//! - the main window: encrypt / decrypt / verify, with native save dialogs;
+//! - the compact Explorer-menu window (`--encrypt` / `--decrypt <file>`), which
+//!   saves next to the input without asking.
+//!
+//! File work always runs on a background thread through the core `files` API.
 use eframe::egui;
 use std::{
     io::Read,
@@ -18,6 +24,7 @@ use withcrypt_core::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+/// The three operations offered by the main window.
 #[derive(Default, PartialEq, Clone, Copy)]
 enum Mode {
     #[default]
@@ -25,10 +32,13 @@ enum Mode {
     Decrypt,
     Verify,
 }
+/// What a background job hands back to the UI thread.
 enum WorkerResult {
     Prepared(Box<files::PreparedDecryption>),
     Complete(Summary),
 }
+/// A running background job. The UI polls `result` every frame, reads the
+/// latest `progress`, and sets `cancel` to ask the job to stop.
 struct Worker {
     cancel: Arc<AtomicBool>,
     progress: Arc<Mutex<Progress>>,
@@ -38,29 +48,43 @@ struct Worker {
     handle: thread::JoinHandle<()>,
 }
 #[derive(Default)]
+/// All UI state. Secrets live in `Zeroizing` buffers and are wiped as soon
+/// as a job takes them or the user cancels.
 struct Desktop {
     mode: Mode,
     suite: Suite,
+    /// Path text shown in, and typed into, the input field.
     input: String,
+    /// Exact path from the file picker. Kept separately because `input` is a
+    /// display string and would lose non-UTF-8 paths.
     selected_input: Option<PathBuf>,
     password: Zeroizing<String>,
+    /// Password confirmation buffer (no field shows it now); wiped with `password`.
     confirmation: Zeroizing<String>,
     show_password: bool,
+    /// Algorithm read from the (not yet authenticated) header, for display only.
     preview: String,
+    /// Last result or error shown in the status area.
     message: String,
     worker: Option<Worker>,
+    /// Decryption whose filename is authenticated, waiting for a save location.
     prepared: Option<Box<files::PreparedDecryption>>,
+    /// The window was closed during a job; close for real once it has stopped.
     closing: bool,
+    /// App icon texture, uploaded on the first frame.
     logo: Option<egui::TextureHandle>,
     /// Launched from the Explorer menu: no destination dialog, save beside the input.
     shell: bool,
 }
 impl Desktop {
+    /// The file to operate on: the picked path if any, else the typed text.
     fn input_path(&self) -> PathBuf {
         self.selected_input
             .clone()
             .unwrap_or_else(|| self.input.clone().into())
     }
+    /// Reads the 64-byte header of the selected file to show its algorithm.
+    /// This happens before any password check, so the UI labels it unauthenticated.
     fn preview_header(&mut self) {
         self.preview = String::new();
         if self.mode == Mode::Encrypt || self.input.is_empty() {
@@ -79,6 +103,7 @@ impl Desktop {
             .map(|h| format!("{} · 아직 인증되지 않은 헤더", h.suite.name()))
             .unwrap_or_else(|| "ESB 헤더를 읽을 수 없습니다".into());
     }
+    /// Main window: native save dialog prefilled with the suggested name.
     fn choose_save(input: &Path, filename: &str, encrypted: bool) -> Option<PathBuf> {
         let mut dialog = rfd::FileDialog::new()
             .set_title(if encrypted {
@@ -93,9 +118,11 @@ impl Desktop {
         }
         dialog.save_file()
     }
+    /// Explorer-menu window: no dialog, the result goes next to the input file.
     fn beside_input(input: &Path, filename: &str, _encrypted: bool) -> Option<PathBuf> {
         Some(input.parent()?.join(filename))
     }
+    /// Where results are saved, depending on how the app was launched.
     fn chooser(&self) -> fn(&Path, &str, bool) -> Option<PathBuf> {
         if self.shell {
             Self::beside_input
@@ -103,6 +130,7 @@ impl Desktop {
             Self::choose_save
         }
     }
+    /// State for an Explorer-menu launch on `path`.
     fn for_shell(mode: Mode, path: PathBuf) -> Self {
         let path = std::path::absolute(&path).unwrap_or(path);
         let mut app = Self::default();
@@ -113,10 +141,14 @@ impl Desktop {
         app.preview_header();
         app
     }
+    /// Starts the selected operation (start button or Enter).
     fn start(&mut self, ctx: &egui::Context) {
         let mut choose = self.chooser();
         self.start_with_chooser(ctx, &mut choose);
     }
+    /// `start` with an injectable save-location chooser, so tests avoid native
+    /// dialogs. Decrypt only runs its first half here (key derivation and the
+    /// stored filename); the save location is chosen afterwards in `save_prepared`.
     fn start_with_chooser(
         &mut self,
         ctx: &egui::Context,
@@ -162,6 +194,7 @@ impl Desktop {
         let mode = self.mode;
         let suite = self.suite;
         let total = expected_total(mode, &input);
+        // Move the password into the job; the UI keeps no copy while it runs.
         let password = std::mem::take(&mut self.password);
         self.confirmation.zeroize();
         self.show_password = false;
@@ -186,12 +219,15 @@ impl Desktop {
             .map(WorkerResult::Complete),
         });
     }
+    /// The user dismissed the save dialog: wipe the password and create nothing.
     fn cancel_selection(&mut self) {
         self.password.zeroize();
         self.confirmation.zeroize();
         self.show_password = false;
         self.message = "저장을 취소했습니다. 출력 파일을 만들지 않았습니다.".into();
     }
+    /// Second half of decryption: once the filename is authenticated, choose the
+    /// output path and run full decryption and verification in the background.
     fn save_prepared(
         &mut self,
         ctx: &egui::Context,
@@ -218,6 +254,9 @@ impl Desktop {
             prepared.save(&output, observer).map(WorkerResult::Complete)
         });
     }
+    /// Runs `job` on a worker thread. Progress is kept in a shared slot holding
+    /// only the latest value (a fast job cannot flood the UI); the result comes
+    /// back through a channel.
     fn spawn_work(
         &mut self,
         ctx: &egui::Context,
@@ -235,6 +274,8 @@ impl Desktop {
         let shared = progress.clone();
         let (tx, rx) = mpsc::channel();
         let context = ctx.clone();
+        // The observer stores progress, wakes the UI, and answers "stop" once
+        // cancel is set.
         let handle = thread::spawn(move || {
             let result = job(&mut |p| {
                 if let Ok(mut value) = shared.lock() {
@@ -255,12 +296,14 @@ impl Desktop {
         });
         self.message.clear();
     }
+    /// Called every frame: collects a finished job and turns its result into a message.
     fn poll(&mut self) {
         let result = self
             .worker
             .as_ref()
             .and_then(|w| match w.result.try_recv() {
                 Ok(r) => Some(r),
+                // The worker ended without reporting (for example, it panicked).
                 Err(mpsc::TryRecvError::Disconnected) => Some(Err(withcrypt_core::Error::Resource)),
                 Err(mpsc::TryRecvError::Empty) => None,
             });
@@ -296,6 +339,7 @@ impl Desktop {
         }
     }
 }
+/// Never leave a job running when the app exits: cancel it and wait for it.
 impl Drop for Desktop {
     fn drop(&mut self) {
         if let Some(worker) = self.worker.take() {
@@ -305,9 +349,12 @@ impl Drop for Desktop {
     }
 }
 impl eframe::App for Desktop {
+    /// One frame: handle close requests, advance the decrypt flow, draw the UI.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll();
         let ctx = ui.ctx().clone();
+        // Closing during a job: keep the window open until the job has stopped
+        // cleanly, so no partial output is left behind.
         if ctx.input(|i| i.viewport().close_requested())
             && (self.worker.is_some() || self.prepared.is_some())
         {
@@ -318,11 +365,13 @@ impl eframe::App for Desktop {
             }
         }
         let mut choose = self.chooser();
+        // As soon as a decrypt has authenticated its filename, ask where to save.
         self.save_prepared(&ctx, &mut choose);
         if self.closing && self.worker.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         let pal = Palette::of(ui.visuals().dark_mode);
+        // Upload the app icon once; mipmaps keep the downscaled logo smooth.
         if self.logo.is_none()
             && let Ok(icon) = eframe::icon_data::from_png_bytes(LOGO)
         {
@@ -337,6 +386,7 @@ impl eframe::App for Desktop {
             self.logo = Some(ctx.load_texture("logo", image, options));
         }
         if self.shell {
+            // Explorer-menu launches get the compact window instead.
             self.shell_ui(ui, &ctx, &pal);
             return;
         }
@@ -369,6 +419,7 @@ impl eframe::App for Desktop {
                     });
                 });
                 ui.add_space(12.0);
+                // Inputs are locked while a job runs.
                 let busy = self.worker.is_some();
                 ui.add_enabled_ui(!busy, |ui| {
                     let old = self.mode;
@@ -382,6 +433,7 @@ impl eframe::App for Desktop {
                             (Mode::Verify, "검증"),
                         ],
                     );
+                    // Switching mode refreshes the header preview and clears old messages.
                     if old != self.mode {
                         self.preview_header();
                         self.message.clear();
@@ -404,6 +456,7 @@ impl eframe::App for Desktop {
                                 )
                                 .changed()
                             {
+                                // Typed text replaces any previously picked path.
                                 self.selected_input = None;
                                 self.preview_header();
                             }
@@ -442,6 +495,7 @@ impl eframe::App for Desktop {
                                     );
                                 });
                         } else {
+                            // Decrypt/verify: show the algorithm from the unauthenticated header.
                             field_label(ui, &pal, "파일 정보");
                             let (text, color) = if self.preview.is_empty() {
                                 ("ESB 파일을 선택하면 헤더 정보가 표시됩니다", pal.muted)
@@ -456,6 +510,7 @@ impl eframe::App for Desktop {
                                 .corner_radius(RADIUS)
                                 .inner_margin(egui::Margin::symmetric(10, 0))
                                 .show(ui, |ui| {
+                                    // Fixed height so this box lines up with the other input rows.
                                     ui.allocate_ui_with_layout(
                                         egui::vec2(ui.available_width(), FIELD_HEIGHT - 2.0),
                                         egui::Layout::left_to_right(egui::Align::Center),
@@ -526,6 +581,7 @@ impl eframe::App for Desktop {
                     }
                 });
                 ui.add_space(10.0);
+                // Status area: progress, last result, or a reminder about safety.
                 if !self.status_ui(ui, &ctx, &pal) {
                     ui.vertical_centered(|ui| {
                         ui.label(
@@ -545,6 +601,7 @@ impl Desktop {
     fn status_ui(&self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &Palette) -> bool {
         if let Some(worker) = &self.worker {
             let cancelling = worker.cancel.load(Ordering::Relaxed);
+            // Copy the latest progress so the lock is not held while drawing.
             let progress = worker.progress.lock().map(|p| *p).ok();
             status_frame(pal.accent).show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -598,6 +655,7 @@ impl Desktop {
             ctx.request_repaint_after(Duration::from_millis(100));
             true
         } else if !self.message.is_empty() {
+            // Colour by outcome: green = success, accent = info or cancelled, red = error.
             let color = if self.message.starts_with("완료") {
                 pal.success
             } else if self.prepared.is_some() || self.message.contains("취소") {
@@ -631,7 +689,9 @@ impl Desktop {
             Mode::Encrypt => ("WithCrypt로 암호화", format!("{name}.esb")),
             _ => ("WithCrypt로 복호화", "저장된 원본 파일명".to_owned()),
         };
+        // Inputs are locked while a job runs.
         let busy = self.worker.is_some();
+        // After success the main button turns into "닫기" (close).
         let done = !busy && self.message.starts_with("완료");
         // Enter starts from anywhere; consume it so no focused button also fires.
         if !busy
@@ -721,6 +781,7 @@ impl Desktop {
                                 "password",
                                 width,
                             );
+                            // Put the cursor in the password field so the user can type right away.
                             if !busy && !done && ui.memory(|m| m.focused().is_none()) {
                                 response.request_focus();
                             }
@@ -782,6 +843,7 @@ fn estimated_plaintext(len: u64) -> u64 {
     let records = body.div_ceil(withcrypt_core::CHUNK_SIZE as u64 + 29);
     body.saturating_sub(records * 29)
 }
+/// Total plaintext bytes expected for the progress percentage.
 fn expected_total(mode: Mode, input: &Path) -> u64 {
     let len = std::fs::metadata(input).map_or(0, |m| m.len());
     if mode == Mode::Encrypt {
@@ -801,6 +863,8 @@ fn progress_fraction(p: Progress, total: u64) -> Option<f32> {
         }
     }
 }
+/// Draws the progress bar: a determinate fill with a moving sheen, or an
+/// indeterminate gliding segment when `fraction` is None.
 fn progress_bar(ui: &mut egui::Ui, pal: &Palette, width: f32, fraction: Option<f32>) {
     let height = 8.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
@@ -866,11 +930,16 @@ fn gradient_pill(
     mesh.add_triangle(2, 1, 3);
     painter.add(mesh);
 }
+/// Shown while a cancel waits for Argon2, which cannot stop midway.
 const CANCELLING: &str = "안전하게 취소하는 중입니다. 키 파생이 끝날 때까지 잠시 기다려 주세요.";
+/// App icon, embedded in the binary.
 const LOGO: &[u8] = include_bytes!("../../../resources/ProgramIcon.png");
+/// Corner radius shared by inputs, buttons and boxes.
 const RADIUS: u8 = 8;
+/// Height of every single-line input row.
 const FIELD_HEIGHT: f32 = 32.0;
 #[derive(Clone, Copy)]
+/// Colour tokens for one theme; `Palette::of` picks dark or light.
 struct Palette {
     bg: egui::Color32,
     surface: egui::Color32,
@@ -924,6 +993,7 @@ impl Palette {
         }
     }
 }
+/// Rounded panel that groups the form fields.
 fn card(pal: &Palette) -> egui::Frame {
     egui::Frame::new()
         .fill(pal.surface)
@@ -931,6 +1001,7 @@ fn card(pal: &Palette) -> egui::Frame {
         .corner_radius(12)
         .inner_margin(egui::Margin::same(14))
 }
+/// Tinted box for status messages, in the given colour.
 fn status_frame(color: egui::Color32) -> egui::Frame {
     egui::Frame::new()
         .fill(color.gamma_multiply(0.12))
@@ -939,6 +1010,7 @@ fn status_frame(color: egui::Color32) -> egui::Frame {
         .inner_margin(egui::Margin::symmetric(12, 8))
         .outer_margin(egui::Margin::ZERO)
 }
+/// Small muted caption above an input.
 fn field_label(ui: &mut egui::Ui, pal: &Palette, text: &str) {
     ui.label(
         egui::RichText::new(text)
@@ -948,6 +1020,7 @@ fn field_label(ui: &mut egui::Ui, pal: &Palette, text: &str) {
     );
     ui.add_space(2.0);
 }
+/// Segmented control: a row of pill buttons, one per mode.
 fn segmented(ui: &mut egui::Ui, pal: &Palette, value: &mut Mode, options: &[(Mode, &str)]) {
     egui::Frame::new()
         .fill(pal.field)
@@ -983,6 +1056,7 @@ fn segmented(ui: &mut egui::Ui, pal: &Palette, value: &mut Mode, options: &[(Mod
             });
         });
 }
+/// Password field; masked unless `show` is set.
 fn password_edit(
     ui: &mut egui::Ui,
     text: &mut String,
@@ -1003,6 +1077,7 @@ fn password_edit(
     output.state.store(ui.ctx(), output.response.id);
     output.response.response
 }
+/// Applies text sizes, spacing and the colours of `pal` to an egui style.
 fn apply_style(style: &mut egui::Style, pal: &Palette) {
     use egui::{FontFamily::Proportional, FontId, Stroke, TextStyle};
     style.text_styles = [
@@ -1066,8 +1141,10 @@ fn apply_style(style: &mut egui::Style, pal: &Palette) {
         visuals.expansion = 0.0;
     }
 }
+/// One-time setup: load a system Korean font and register both themes.
 fn configure(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
+    // egui's bundled fonts have no Hangul glyphs; use the first system font found.
     let paths = [
         "/System/Library/Fonts/AppleSDGothicNeo.ttc",
         "C:\\Windows\\Fonts\\malgun.ttf",
@@ -1093,11 +1170,14 @@ fn configure(ctx: &egui::Context) {
         ctx.style_mut_of(theme, |style| apply_style(style, &pal));
     }
 }
+/// Shown when the command line is not understood.
 const USAGE: &str = "사용법: withcrypt-desktop [--encrypt 파일 | --decrypt 파일]\n탐색기 메뉴 등록·해제는 withcrypt-shell-setup을 사용하세요.";
+/// How the app was started.
 enum Launch {
     Window,
     Shell(Mode, PathBuf),
 }
+/// No arguments opens the main window; `--encrypt` or `--decrypt <file>` the compact one.
 fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
     match args {
         [] => Some(Launch::Window),
@@ -1110,6 +1190,7 @@ fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
         _ => None,
     }
 }
+/// Picks the window from the command line and runs the egui event loop.
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let (app, size) = match parse_launch(&args) {
@@ -1147,6 +1228,7 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Polls until the background job finishes (30 s limit).
     fn wait(app: &mut Desktop) {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while app.worker.is_some() {

@@ -5,11 +5,14 @@
 use std::{path::Path, process::Command};
 use windows_registry::LOCAL_MACHINE;
 
+/// Identity name from AppxManifest.xml.
 pub const PACKAGE_NAME: &str = "WithCrypt.ShellExtension";
+/// Package file produced by scripts/package-windows-shell.ps1.
 pub const PACKAGE_FILE: &str = "WithCrypt.Shell.msix";
 /// Windows 11 starts at build 22000; earlier builds have no top-level menu.
 const FIRST_SUPPORTED_BUILD: u32 = 22000;
 
+/// Windows build number from the registry (e.g. 26100).
 pub fn windows_build() -> Option<u32> {
     LOCAL_MACHINE
         .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
@@ -19,6 +22,7 @@ pub fn windows_build() -> Option<u32> {
         .ok()
 }
 
+/// True on Windows 11, where the top-level menu exists.
 pub fn supported() -> bool {
     windows_build().is_some_and(|build| build >= FIRST_SUPPORTED_BUILD)
 }
@@ -67,6 +71,7 @@ pub fn installed() -> Result<Option<String>, String> {
     Ok((!text.is_empty()).then_some(text))
 }
 
+/// Installs the package with this folder as its external location.
 pub fn register(package: &Path, external: &Path) -> Result<(), String> {
     let package = package.to_str().ok_or("패키지 경로가 UTF-8이 아닙니다")?;
     let external = external.to_str().ok_or("설치 경로가 UTF-8이 아닙니다")?;
@@ -81,6 +86,7 @@ pub fn register(package: &Path, external: &Path) -> Result<(), String> {
     .map_err(explain)
 }
 
+/// Removes the package for the current user; nothing to do if it is not installed.
 pub fn unregister() -> Result<(), String> {
     powershell(&format!(
         "Get-AppxPackage -Name {} | Remove-AppxPackage",
@@ -90,6 +96,7 @@ pub fn unregister() -> Result<(), String> {
     .map_err(explain)
 }
 
+/// Adds a hint to PowerShell errors that usually mean "run as administrator".
 fn explain(error: String) -> String {
     // 0x80073CF9 / 0x80070005: unsigned packages with code may need an elevated shell.
     if error.contains("0x80070005") || error.contains("0x80073CF9") {

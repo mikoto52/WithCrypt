@@ -4,6 +4,7 @@
 use std::path::Path;
 use windows_registry::CURRENT_USER;
 
+/// One classic context-menu verb.
 pub struct Entry {
     pub key: &'static str,
     pub title: &'static str,
@@ -27,12 +28,15 @@ pub const ENTRIES: [Entry; 2] = [
         applies_to: None,
     },
 ];
+/// HRESULT for ERROR_FILE_NOT_FOUND: the key is already gone.
 const NOT_FOUND: i32 = 0x8007_0002_u32 as i32;
 
+/// The command Explorer runs; `%1` is replaced with the clicked file.
 pub fn command_line(exe: &str, flag: &str) -> String {
     format!("\"{exe}\" {flag} \"%1\"")
 }
 
+/// The registry stores text, so the path must be UTF-8 and quote-free.
 fn exe_string(exe: &Path) -> Result<&str, String> {
     let exe = exe
         .to_str()
@@ -43,6 +47,7 @@ fn exe_string(exe: &Path) -> Result<&str, String> {
     Ok(exe)
 }
 
+/// Creates both verbs under HKCU, pointing at `desktop` (withcrypt-desktop.exe).
 pub fn register(desktop: &Path) -> Result<(), String> {
     let exe = exe_string(desktop)?;
     let result = (|| -> windows_registry::Result<()> {
@@ -62,6 +67,7 @@ pub fn register(desktop: &Path) -> Result<(), String> {
     result.map_err(|e| e.message())
 }
 
+/// Removes both verbs; missing keys are not an error.
 pub fn unregister() -> Result<(), String> {
     for entry in &ENTRIES {
         match CURRENT_USER.remove_tree(entry.key) {
