@@ -1,7 +1,8 @@
-//! Shared CLI/desktop transactions. Output is published only after full validation.
+//! Shared CLI/desktop transactions. Output is written in place and removed unless
+//! the whole operation, including final authentication, succeeds.
 use crate::*;
 use std::{
-    fs::{self, File, Metadata},
+    fs::{self, File, Metadata, OpenOptions},
     io::{self, BufReader, Write},
     path::{Path, PathBuf},
 };
@@ -36,7 +37,7 @@ fn check_unchanged(file: &File, input: &Path, before: &Metadata) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn restrict_directory(path: &Path) -> Result<()> {
+fn restrict_file(path: &Path) -> Result<()> {
     use std::process::Command;
     // Query the process identity, never an environment-supplied account name.
     let identity = Command::new("whoami.exe")
@@ -59,7 +60,7 @@ fn restrict_directory(path: &Path) -> Result<()> {
     {
         return Err(Error::Resource);
     }
-    let grant = format!("*{sid}:(OI)(CI)F");
+    let grant = format!("*{sid}:F");
     let result = Command::new("icacls.exe")
         .arg(path)
         .args(["/inheritance:r", "/grant:r", &grant])
@@ -70,7 +71,7 @@ fn restrict_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(not(windows))]
-fn restrict_directory(_path: &Path) -> Result<()> {
+fn restrict_file(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -230,70 +231,74 @@ fn output_transaction(
     process: impl FnOnce(&mut File, &mut Observer<'_>) -> Result<Summary>,
 ) -> Result<Summary> {
     notify(observer, Stage::Processing, 0)?;
-    match fs::symlink_metadata(output) {
-        Ok(_) => return Err(Error::OutputExists),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let parent = fs::canonicalize(parent)?;
     let output = parent.join(output.file_name().ok_or(Error::Format("출력 파일명"))?);
-    let mut builder = tempfile::Builder::new();
-    builder.prefix(".withcrypt-");
+    // create_new is an atomic no-clobber create. It also refuses an existing
+    // symlink or hard link alias, including the input itself.
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(fs::Permissions::from_mode(0o700));
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
     }
-    let tempdir = builder.tempdir_in(&parent)?;
+    let mut file = options.open(&output).map_err(|e| {
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            Error::OutputExists
+        } else {
+            Error::Io(e)
+        }
+    })?;
+    let created = file_path_handle(&file)?;
     let result: Result<Summary> = (|| {
-        restrict_directory(tempdir.path())?;
-        let mut temp = tempfile::NamedTempFile::new_in(tempdir.path())?;
-        let summary = process(temp.as_file_mut(), observer)?;
+        restrict_file(&output)?;
+        let summary = process(&mut file, observer)?;
         check_unchanged(source, input, before)?;
-        temp.flush()?;
-        temp.as_file().sync_all()?;
+        file.flush()?;
+        file.sync_all()?;
         notify(observer, Stage::Committing, summary.original_size)?;
         check_unchanged(source, input, before)?;
-        // hard_link creates the destination atomically and fails if it exists.
-        // The temp file is on the same filesystem. No check-then-rename fallback.
-        fs::hard_link(temp.path(), &output).map_err(|e| {
-            if e.kind() == io::ErrorKind::AlreadyExists {
-                Error::OutputExists
-            } else {
-                Error::Io(e)
-            }
-        })?;
-        // After commit, cancellation never removes the published file.
-        temp.close()
-            .map_err(|e| Error::Cleanup(format!("결과는 저장됨; {e}")))?;
-        #[cfg(unix)]
-        File::open(&parent)?
-            .sync_all()
-            .map_err(|e| Error::Cleanup(format!("결과는 저장됨; 디렉터리 동기화 실패: {e}")))?;
+        if same_file::Handle::from_path(&output)? != created {
+            return Err(Error::OutputChanged);
+        }
         Ok(summary)
     })();
-    if let Err(e) = tempdir.close() {
-        return Err(Error::Cleanup(format!(
-            "{e}; 작업 결과: {}",
-            if result.is_ok() {
-                "저장됨".to_owned()
-            } else {
-                result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .unwrap_or_default()
-            }
-        )));
-    }
-    let summary = result?;
+    drop(file);
+    let summary = match result {
+        Ok(summary) => summary,
+        Err(e) => {
+            // The partial output is unverified. Remove it only while the path
+            // still names the file this transaction created.
+            return match remove_partial(&output, &created) {
+                Ok(()) => Err(e),
+                Err(cleanup) => Err(Error::Cleanup(format!("{cleanup}; 작업 결과: {e}"))),
+            };
+        }
+    };
+    // After commit, cancellation never removes the saved file.
+    #[cfg(unix)]
+    File::open(&parent)?
+        .sync_all()
+        .map_err(|e| Error::Cleanup(format!("결과는 저장됨; 디렉터리 동기화 실패: {e}")))?;
     observer(Progress {
         stage: Stage::Complete,
         bytes: summary.original_size,
     });
     Ok(summary)
+}
+fn remove_partial(output: &Path, created: &same_file::Handle) -> io::Result<()> {
+    match same_file::Handle::from_path(output) {
+        Ok(current) if current == *created => {
+            drop(current);
+            fs::remove_file(output)
+        }
+        // Replaced or already removed by another process: not ours to delete.
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
 }

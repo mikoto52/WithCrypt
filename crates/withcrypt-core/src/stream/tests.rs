@@ -497,24 +497,37 @@ fn file_transactions() {
         .unwrap();
         assert_eq!(fs::read(&out).unwrap(), b"keep me");
         assert_eq!(fs::read(&input).unwrap(), b"keep me");
+        fs::write(&out, b"competitor").unwrap();
+        assert!(matches!(
+            run(&enc, Some(&out), PASSWORD, Operation::Decrypt, &mut |_| {
+                true
+            }),
+            Err(Error::OutputExists)
+        ));
+        assert_eq!(fs::read(&out).unwrap(), b"competitor");
         fs::remove_file(&out).unwrap();
-        assert!(
+        // A destination replaced mid-operation is reported and never deleted.
+        assert!(matches!(
             run(&enc, Some(&out), PASSWORD, Operation::Decrypt, &mut |p| {
                 if p.stage == Stage::Committing {
+                    fs::remove_file(&out).unwrap();
                     fs::write(&out, b"competitor").unwrap();
                 }
                 true
-            })
-            .is_err()
-        );
+            }),
+            Err(Error::OutputChanged)
+        ));
         assert_eq!(fs::read(&out).unwrap(), b"competitor");
-        assert!(fs::read_dir(dir.path()).unwrap().all(|e| {
-            !e.unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".withcrypt-")
-        }));
         fs::remove_file(&out).unwrap();
+        // Cancelling while writing removes the partial output in place.
+        assert!(matches!(
+            run(&enc, Some(&out), PASSWORD, Operation::Decrypt, &mut |p| p
+                .stage
+                != Stage::Verifying),
+            Err(Error::Cancelled)
+        ));
+        assert!(!out.exists());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
         assert!(matches!(
             run(
                 &input,

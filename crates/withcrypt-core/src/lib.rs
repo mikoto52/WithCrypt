@@ -31,7 +31,9 @@ pub enum Error {
     InputChanged,
     #[error("출력 파일이 이미 존재하거나 입력 파일과 같습니다")]
     OutputExists,
-    #[error("임시 파일 정리 실패: {0}")]
+    #[error("출력 파일이 처리 중 다른 파일로 바뀌었습니다")]
+    OutputChanged,
+    #[error("미완성 출력 파일 정리 실패: {0}")]
     Cleanup(String),
 }
 pub type Result<T> = std::result::Result<T, Error>;
