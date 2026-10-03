@@ -98,8 +98,15 @@ pub fn unregister() -> Result<(), String> {
 
 /// Adds a hint to PowerShell errors that usually mean "run as administrator".
 fn explain(error: String) -> String {
+    // 0x80073D2B: an unsigned package with an executable activation (ours has
+    // one: the Application entry) installs only for all users, i.e. elevated.
+    if error.contains("0x80073D2B") {
+        "서명되지 않은 패키지는 관리자 권한에서만 설치할 수 있습니다 (0x80073D2B). \
+         Windows 11 새 메뉴가 필요하면 관리자 권한 명령 프롬프트에서 다시 실행하거나 \
+         서명된 패키지를 사용하세요."
+            .to_owned()
     // 0x80073CF9 / 0x80070005: unsigned packages with code may need an elevated shell.
-    if error.contains("0x80070005") || error.contains("0x80073CF9") {
+    } else if error.contains("0x80070005") || error.contains("0x80073CF9") {
         format!("{error}\n관리자 권한 명령 프롬프트에서 다시 실행해 보세요.")
     } else {
         error

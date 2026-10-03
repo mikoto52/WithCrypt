@@ -93,19 +93,24 @@ fn run(command: Command) -> bool {
             let missing = [package.clone(), dir.join("withcrypt_shell.dll")]
                 .into_iter()
                 .find(|path| !path.is_file());
-            let ok = report(
+            let modern_ok = report(
                 "Windows 11 새 메뉴",
                 match missing {
                     Some(path) => Err(format!("{}이(가) 없습니다", path.display())),
                     None => modern::register(&package, &dir),
                 },
             );
-            if ok {
+            let ok = if modern_ok {
                 // Older releases registered both styles. Remove that stale
                 // classic registration after modern setup succeeds.
-                if !report("중복 클래식 메뉴 해제", classic::unregister()) {
-                    return false;
-                }
+                report("중복 클래식 메뉴 해제", classic::unregister())
+            } else {
+                // Never leave the user without a menu: fall back to the classic
+                // one, which needs neither a signature nor administrator rights.
+                println!("[대체] 클래식 메뉴로 등록합니다 ('더 많은 옵션 표시' 안에 나타남)");
+                report("클래식 메뉴", classic::register(&desktop, &shell_icon))
+            };
+            if ok {
                 println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
             }
             ok
