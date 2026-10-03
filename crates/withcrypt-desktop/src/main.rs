@@ -453,7 +453,8 @@ fn main() -> eframe::Result {
         eframe::icon_data::from_png_bytes(include_bytes!("../../../resources/ProgramIcon.png"))
             .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_icon(icon),
+        viewport: egui::ViewportBuilder::default().with_icon(icon)
+        .with_resizable(false).with_inner_size([600.0, 500.0]),
         ..Default::default()
     };
     eframe::run_native(
