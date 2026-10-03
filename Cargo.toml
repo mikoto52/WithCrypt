@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
-license = "GPL-3.0-or-later"
+license = "MIT"
 
 [workspace.dependencies]
 withcrypt-core = { path = "crates/withcrypt-core" }
