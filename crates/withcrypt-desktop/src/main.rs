@@ -932,8 +932,14 @@ fn gradient_pill(
 }
 /// Shown while a cancel waits for Argon2, which cannot stop midway.
 const CANCELLING: &str = "안전하게 취소하는 중입니다. 키 파생이 끝날 때까지 잠시 기다려 주세요.";
-/// App icon, embedded in the binary.
+/// Logo drawn inside the window.
 const LOGO: &[u8] = include_bytes!("../../../resources/ProgramIcon.png");
+/// Native window/taskbar icon. The PE file icon is embedded from the matching
+/// ICO by build.rs because Windows Explorer does not use a PNG for executables.
+#[cfg(target_os = "windows")]
+const APP_ICON: &[u8] = include_bytes!("../../../resources/AppIcon2.png");
+#[cfg(not(target_os = "windows"))]
+const APP_ICON: &[u8] = LOGO;
 /// Corner radius shared by inputs, buttons and boxes.
 const RADIUS: u8 = 8;
 /// Height of every single-line input row.
@@ -1205,7 +1211,7 @@ fn main() -> eframe::Result {
             return Ok(());
         }
     };
-    let icon = eframe::icon_data::from_png_bytes(LOGO)
+    let icon = eframe::icon_data::from_png_bytes(APP_ICON)
         .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

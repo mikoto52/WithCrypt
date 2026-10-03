@@ -48,13 +48,14 @@ fn exe_string(exe: &Path) -> Result<&str, String> {
 }
 
 /// Creates both verbs under HKCU, pointing at `desktop` (withcrypt-desktop.exe).
-pub fn register(desktop: &Path) -> Result<(), String> {
+pub fn register(desktop: &Path, icon: &Path) -> Result<(), String> {
     let exe = exe_string(desktop)?;
+    let icon = exe_string(icon)?;
     let result = (|| -> windows_registry::Result<()> {
         for entry in &ENTRIES {
             let key = CURRENT_USER.create(entry.key)?;
             key.set_string("MUIVerb", entry.title)?;
-            key.set_string("Icon", format!("\"{exe}\",0"))?;
+            key.set_string("Icon", format!("\"{icon}\",0"))?;
             if let Some(filter) = entry.applies_to {
                 key.set_string("AppliesTo", filter)?;
             }

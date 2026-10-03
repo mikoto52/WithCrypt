@@ -18,7 +18,7 @@ Xcode Command Line Tools가 필요하다. CLI는 `target/release/withcrypt`, GUI
 
 MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo build --release --locked --workspace` 후 `withcrypt.exe`와 `withcrypt-desktop.exe`를 배포한다. 시스템 `whoami.exe`, `icacls.exe`가 필요하다. 출력 파일은 내용을 쓰기 전에 현재 사용자 SID만 접근하도록 ACL을 적용한다. 실제 NTFS no-clobber, ACL, 취소·정리 및 한글 IME 검증은 Windows CI/수동 검증에서 확인한다.
 
-탐색기 메뉴(ADR-004)는 두 가지이며 `withcrypt-shell-setup.exe`로 함께 등록·해제한다. `withcrypt-desktop.exe`, `withcrypt_shell.dll`, `withcrypt-shell-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
+탐색기 메뉴(ADR-004)는 두 가지 구현을 제공하지만 중복 표시를 막기 위해 하나만 활성화한다. Windows 11 기본 등록은 새 메뉴, 이전 Windows와 `--classic-only`는 클래식 메뉴를 사용한다. `withcrypt-desktop.exe`, `withcrypt_shell.dll`, `withcrypt-shell-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
 
 ```powershell
 cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup

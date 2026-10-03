@@ -47,6 +47,9 @@ foreach ($file in "withcrypt-desktop.exe", "withcrypt_shell.dll") {
         throw "$file not found in $InstallDir. Run: cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup"
     }
 }
+$shellIcon = Join-Path $root "resources\ShellIcon.ico"
+if (-not (Test-Path $shellIcon)) { throw "resources\ShellIcon.ico not found." }
+Copy-Item $shellIcon (Join-Path $InstallDir "ShellIcon.ico") -Force
 $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\makeappx.exe" |
     Sort-Object FullName -Descending | Select-Object -First 1
 if (-not $kit) { throw "Windows SDK (makeappx.exe) not found." }

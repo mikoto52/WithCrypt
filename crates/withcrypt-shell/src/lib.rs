@@ -42,6 +42,7 @@ pub const DECRYPT_CLSID: GUID = GUID::from_u128(0x02856102_e872_4e51_95a7_9ad715
 const MAX_ITEMS: usize = 16;
 /// The app this DLL launches; it must sit in the same folder.
 const DESKTOP_EXE: &str = "withcrypt-desktop.exe";
+const SHELL_ICON: &str = "ShellIcon.ico";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Which menu entry a COM object represents (one CLSID per entry).
@@ -117,7 +118,7 @@ fn selected_paths(items: &IShellItemArray) -> Result<Vec<PathBuf>> {
 }
 
 /// The desktop app is installed next to this DLL (the package external location).
-fn desktop_exe() -> Result<PathBuf> {
+fn sibling_file(name: &str) -> Result<PathBuf> {
     let mut module = HMODULE::default();
     // SAFETY: any address inside this DLL identifies its module; no refcount change.
     unsafe {
@@ -133,7 +134,11 @@ fn desktop_exe() -> Result<PathBuf> {
     if len == 0 || len >= buffer.len() {
         return Err(Error::from_thread());
     }
-    Ok(PathBuf::from(OsString::from_wide(&buffer[..len])).with_file_name(DESKTOP_EXE))
+    Ok(PathBuf::from(OsString::from_wide(&buffer[..len])).with_file_name(name))
+}
+
+fn desktop_exe() -> Result<PathBuf> {
+    sibling_file(DESKTOP_EXE)
 }
 
 /// Copies `text` into a COM-allocated string, as IExplorerCommand requires.
@@ -151,9 +156,9 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
     fn GetTitle(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
         co_string(self.0.title())
     }
-    /// Icon resource string: the desktop app's first icon.
+    /// Explorer accepts a standalone ICO path for an IExplorerCommand icon.
     fn GetIcon(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
-        co_string(&format!("{},0", desktop_exe()?.display()))
+        co_string(&sibling_file(SHELL_ICON)?.to_string_lossy())
     }
     fn GetToolTip(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
         Err(E_NOTIMPL.into())

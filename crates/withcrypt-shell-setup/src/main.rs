@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
-//! Registers or removes both WithCrypt Explorer menus (ADR-004).
+//! Registers one WithCrypt Explorer menu style appropriate for this Windows
+//! version (ADR-004). Keeping classic and modern registrations active together
+//! can make Explorer show the same command twice.
 //! Expects withcrypt-desktop.exe, withcrypt_shell.dll and WithCrypt.Shell.msix
 //! in the same folder as this executable.
 #[cfg(windows)]
@@ -11,7 +13,7 @@ mod modern;
 const USAGE: &str = "\
 사용법: withcrypt-shell-setup <명령>
 
-  register     탐색기 메뉴 등록 (클래식 + Windows 11 새 메뉴)
+  register     탐색기 메뉴 등록 (Windows 11은 새 메뉴, 이전 버전은 클래식)
   register --classic-only
                클래식 메뉴만 등록 ('더 많은 옵션 표시')
   unregister   두 메뉴 모두 해제
@@ -52,6 +54,7 @@ fn run(command: Command) -> bool {
         }
     };
     let desktop = dir.join("withcrypt-desktop.exe");
+    let shell_icon = dir.join("ShellIcon.ico");
     let report = |label: &str, result: Result<(), String>| match result {
         Ok(()) => {
             println!("[완료] {label}");
@@ -68,20 +71,29 @@ fn run(command: Command) -> bool {
                 eprintln!("{}이(가) 없습니다.", desktop.display());
                 return false;
             }
-            let mut ok = report("클래식 메뉴", classic::register(&desktop));
+            if !shell_icon.is_file() {
+                eprintln!("{}이(가) 없습니다.", shell_icon.display());
+                return false;
+            }
             if classic_only {
-                return ok;
+                // Remove a previous modern registration first, otherwise an
+                // .esb file can retain both decrypt commands.
+                if modern::supported() && !report("Windows 11 새 메뉴 해제", modern::unregister())
+                {
+                    return false;
+                }
+                return report("클래식 메뉴", classic::register(&desktop, &shell_icon));
             }
             if !modern::supported() {
                 println!("[건너뜀] Windows 11 새 메뉴: Windows 11에서만 지원합니다");
-                return ok;
+                return report("클래식 메뉴", classic::register(&desktop, &shell_icon));
             }
             let package = dir.join(modern::PACKAGE_FILE);
             // The package points Explorer at the DLL, so both must be present.
             let missing = [package.clone(), dir.join("withcrypt_shell.dll")]
                 .into_iter()
                 .find(|path| !path.is_file());
-            ok &= report(
+            let ok = report(
                 "Windows 11 새 메뉴",
                 match missing {
                     Some(path) => Err(format!("{}이(가) 없습니다", path.display())),
@@ -89,6 +101,11 @@ fn run(command: Command) -> bool {
                 },
             );
             if ok {
+                // Older releases registered both styles. Remove that stale
+                // classic registration after modern setup succeeds.
+                if !report("중복 클래식 메뉴 해제", classic::unregister()) {
+                    return false;
+                }
                 println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
             }
             ok
