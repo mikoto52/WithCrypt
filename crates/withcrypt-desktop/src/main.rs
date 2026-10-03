@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 use eframe::egui;
+mod shell_menu;
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -32,6 +33,8 @@ enum WorkerResult {
 struct Worker {
     cancel: Arc<AtomicBool>,
     progress: Arc<Mutex<Progress>>,
+    /// Expected plaintext bytes for the percentage; 0 when unknown.
+    total: u64,
     result: mpsc::Receiver<withcrypt_core::Result<WorkerResult>>,
     handle: thread::JoinHandle<()>,
 }
@@ -50,6 +53,8 @@ struct Desktop {
     prepared: Option<Box<files::PreparedDecryption>>,
     closing: bool,
     logo: Option<egui::TextureHandle>,
+    /// Launched from the Explorer menu: no destination dialog, save beside the input.
+    shell: bool,
 }
 impl Desktop {
     fn input_path(&self) -> PathBuf {
@@ -89,8 +94,29 @@ impl Desktop {
         }
         dialog.save_file()
     }
+    fn beside_input(input: &Path, filename: &str, _encrypted: bool) -> Option<PathBuf> {
+        Some(input.parent()?.join(filename))
+    }
+    fn chooser(&self) -> fn(&Path, &str, bool) -> Option<PathBuf> {
+        if self.shell {
+            Self::beside_input
+        } else {
+            Self::choose_save
+        }
+    }
+    fn for_shell(mode: Mode, path: PathBuf) -> Self {
+        let path = std::path::absolute(&path).unwrap_or(path);
+        let mut app = Self::default();
+        app.mode = mode;
+        app.shell = true;
+        app.input = path.to_string_lossy().into_owned();
+        app.selected_input = Some(path);
+        app.preview_header();
+        app
+    }
     fn start(&mut self, ctx: &egui::Context) {
-        self.start_with_chooser(ctx, &mut Self::choose_save);
+        let mut choose = self.chooser();
+        self.start_with_chooser(ctx, &mut choose);
     }
     fn start_with_chooser(
         &mut self,
@@ -136,10 +162,11 @@ impl Desktop {
         };
         let mode = self.mode;
         let suite = self.suite;
+        let total = expected_total(mode, &input);
         let password = std::mem::take(&mut self.password);
         self.confirmation.zeroize();
         self.show_password = false;
-        self.spawn_work(ctx, move |observer| match mode {
+        self.spawn_work(ctx, total, move |observer| match mode {
             Mode::Decrypt => files::prepare_decryption(&input, password.as_bytes(), observer)
                 .map(|prepared| WorkerResult::Prepared(Box::new(prepared))),
             Mode::Encrypt => files::run(
@@ -187,13 +214,15 @@ impl Desktop {
             self.cancel_selection();
             return;
         };
-        self.spawn_work(ctx, move |observer| {
+        let total = expected_total(Mode::Decrypt, &self.input_path());
+        self.spawn_work(ctx, total, move |observer| {
             prepared.save(&output, observer).map(WorkerResult::Complete)
         });
     }
     fn spawn_work(
         &mut self,
         ctx: &egui::Context,
+        total: u64,
         job: impl FnOnce(&mut withcrypt_core::Observer<'_>) -> withcrypt_core::Result<WorkerResult>
         + Send
         + 'static,
@@ -221,6 +250,7 @@ impl Desktop {
         self.worker = Some(Worker {
             cancel,
             progress,
+            total,
             result: rx,
             handle,
         });
@@ -288,7 +318,8 @@ impl eframe::App for Desktop {
                 w.cancel.store(true, Ordering::Relaxed);
             }
         }
-        self.save_prepared(&ctx, &mut Self::choose_save);
+        let mut choose = self.chooser();
+        self.save_prepared(&ctx, &mut choose);
         if self.closing && self.worker.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -305,6 +336,10 @@ impl eframe::App for Desktop {
                 ..egui::TextureOptions::LINEAR
             };
             self.logo = Some(ctx.load_texture("logo", image, options));
+        }
+        if self.shell {
+            self.shell_ui(ui, &ctx, &pal);
+            return;
         }
         egui::CentralPanel::default()
             .frame(
@@ -443,7 +478,13 @@ impl eframe::App for Desktop {
                             let toggle_width = 64.0;
                             let width =
                                 ui.available_width() - toggle_width - ui.spacing().item_spacing.x;
-                            password_edit(ui, &mut self.password, self.show_password, "password", width);
+                            password_edit(
+                                ui,
+                                &mut self.password,
+                                self.show_password,
+                                "password",
+                                width,
+                            );
                             if ui
                                 .add(
                                     egui::Button::new(if self.show_password {
@@ -486,59 +527,7 @@ impl eframe::App for Desktop {
                     }
                 });
                 ui.add_space(10.0);
-                if let Some(worker) = &self.worker {
-                    let cancelling = worker.cancel.load(Ordering::Relaxed);
-                    status_frame(pal.accent).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            if cancelling {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "안전하게 취소하는 중입니다. 키 파생이 끝날 때까지 잠시 기다려 주세요.",
-                                    )
-                                    .color(pal.text),
-                                );
-                            } else if let Ok(p) = worker.progress.lock() {
-                                let stage = match p.stage {
-                                    Stage::Kdf => "키 파생 중",
-                                    Stage::Processing => "파일 처리 중",
-                                    Stage::Verifying => "무결성 검증 중",
-                                    Stage::Committing => "결과 저장 중",
-                                    Stage::Complete => "완료",
-                                };
-                                ui.label(egui::RichText::new(stage).strong().color(pal.text));
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{:.1} MiB",
-                                        p.bytes as f64 / 1048576.0
-                                    ))
-                                    .color(pal.muted),
-                                );
-                            }
-                            if !cancelling {
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button("취소").clicked() {
-                                        worker.cancel.store(true, Ordering::Relaxed);
-                                    }
-                                });
-                            }
-                        });
-                    });
-                    ctx.request_repaint_after(Duration::from_millis(100));
-                } else if !self.message.is_empty() {
-                    let color = if self.message.starts_with("완료") {
-                        pal.success
-                    } else if self.prepared.is_some() || self.message.contains("취소") {
-                        pal.accent
-                    } else {
-                        pal.danger
-                    };
-                    status_frame(color).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.label(egui::RichText::new(&self.message).color(pal.text));
-                    });
-                } else {
+                if !self.status_ui(ui, &ctx, &pal) {
                     ui.vertical_centered(|ui| {
                         ui.label(
                             egui::RichText::new(
@@ -552,6 +541,333 @@ impl eframe::App for Desktop {
             });
     }
 }
+impl Desktop {
+    /// Progress while working, otherwise the last result. False when empty.
+    fn status_ui(&self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &Palette) -> bool {
+        if let Some(worker) = &self.worker {
+            let cancelling = worker.cancel.load(Ordering::Relaxed);
+            let progress = worker.progress.lock().map(|p| *p).ok();
+            status_frame(pal.accent).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    if cancelling {
+                        ui.label(egui::RichText::new(CANCELLING).color(pal.text));
+                    } else if let Some(p) = progress {
+                        let stage = match p.stage {
+                            Stage::Kdf => "키 파생 중",
+                            Stage::Processing => "파일 처리 중",
+                            Stage::Verifying => "무결성 검증 중",
+                            Stage::Committing => "결과 저장 중",
+                            Stage::Complete => "완료",
+                        };
+                        ui.label(egui::RichText::new(stage).strong().color(pal.text));
+                        ui.label(
+                            egui::RichText::new(format!("{:.1} MiB", p.bytes as f64 / 1048576.0))
+                                .color(pal.muted),
+                        );
+                    }
+                    if !cancelling {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.add(egui::Button::new("취소").small()).clicked() {
+                                worker.cancel.store(true, Ordering::Relaxed);
+                            }
+                        });
+                    }
+                });
+                ui.add_space(4.0);
+                let fraction = progress.and_then(|p| progress_fraction(p, worker.total));
+                // Animate per job so a new job does not slide down from 100%.
+                let id = egui::Id::new(("progress", Arc::as_ptr(&worker.progress) as usize));
+                let shown = fraction.map(|f| ctx.animate_value_with_time(id, f, 0.2));
+                ui.horizontal(|ui| {
+                    let percent_width = 44.0;
+                    let width = ui.available_width() - percent_width - ui.spacing().item_spacing.x;
+                    progress_bar(ui, pal, width, shown);
+                    let text = shown.map_or("—".to_owned(), |f| format!("{:.0}%", f * 100.0));
+                    ui.add_sized(
+                        [percent_width, 16.0],
+                        egui::Label::new(
+                            egui::RichText::new(text)
+                                .size(12.5)
+                                .strong()
+                                .color(pal.text),
+                        ),
+                    );
+                });
+            });
+            ctx.request_repaint_after(Duration::from_millis(100));
+            true
+        } else if !self.message.is_empty() {
+            let color = if self.message.starts_with("완료") {
+                pal.success
+            } else if self.prepared.is_some() || self.message.contains("취소") {
+                pal.accent
+            } else {
+                pal.danger
+            };
+            status_frame(color).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(egui::RichText::new(&self.message).color(pal.text));
+            });
+            true
+        } else {
+            false
+        }
+    }
+}
+impl Desktop {
+    /// Compact window for Explorer menu launches. The result is saved beside the input.
+    fn shell_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &Palette) {
+        let path = self.input_path();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let folder = path
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let (title, result) = match self.mode {
+            Mode::Encrypt => ("WithCrypt로 암호화", format!("{name}.esb")),
+            _ => ("WithCrypt로 복호화", "저장된 원본 파일명".to_owned()),
+        };
+        let busy = self.worker.is_some();
+        let done = !busy && self.message.starts_with("완료");
+        // Enter starts from anywhere; consume it so no focused button also fires.
+        if !busy
+            && !done
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        {
+            self.start(ctx);
+        }
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(pal.bg)
+                    .inner_margin(egui::Margin::symmetric(24, 18)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if let Some(logo) = &self.logo {
+                        ui.add(egui::Image::new((logo.id(), egui::vec2(28.0, 28.0))));
+                    }
+                    ui.label(
+                        egui::RichText::new(title)
+                            .size(18.0)
+                            .strong()
+                            .color(pal.text),
+                    );
+                });
+                ui.add_space(12.0);
+                card(pal).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    field_label(ui, pal, "대상 파일");
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(&name).strong().color(pal.text))
+                            .truncate(),
+                    );
+                    for (label, value) in
+                        [("저장 위치", folder.as_str()), ("결과", result.as_str())]
+                    {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(format!("{label} · {value}"))
+                                    .size(12.5)
+                                    .color(pal.muted),
+                            )
+                            .truncate(),
+                        );
+                    }
+                    if self.mode != Mode::Encrypt && !self.preview.is_empty() {
+                        let color = if self.preview.starts_with("ESB") {
+                            pal.warning
+                        } else {
+                            pal.muted
+                        };
+                        ui.label(egui::RichText::new(&self.preview).size(12.5).color(color));
+                    }
+                    ui.add_space(8.0);
+                    ui.add_enabled_ui(!busy && !done, |ui| {
+                        if self.mode == Mode::Encrypt {
+                            field_label(ui, pal, "암호화 알고리즘");
+                            let width = ui.available_width();
+                            ui.spacing_mut().interact_size.y = FIELD_HEIGHT;
+                            egui::ComboBox::from_id_salt("suite")
+                                .width(width)
+                                .selected_text(self.suite.name())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.suite,
+                                        Suite::XChaCha20Poly1305,
+                                        "XChaCha20-Poly1305 (기본)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.suite,
+                                        Suite::Aes256Gcm,
+                                        "AES-256-GCM",
+                                    );
+                                });
+                            ui.add_space(8.0);
+                        }
+                        field_label(ui, pal, "비밀번호");
+                        ui.horizontal(|ui| {
+                            let toggle_width = 64.0;
+                            let width =
+                                ui.available_width() - toggle_width - ui.spacing().item_spacing.x;
+                            let response = password_edit(
+                                ui,
+                                &mut self.password,
+                                self.show_password,
+                                "password",
+                                width,
+                            );
+                            if !busy && !done && ui.memory(|m| m.focused().is_none()) {
+                                response.request_focus();
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new(if self.show_password {
+                                        "숨기기"
+                                    } else {
+                                        "표시"
+                                    })
+                                    .selected(self.show_password)
+                                    .min_size(egui::vec2(toggle_width, FIELD_HEIGHT)),
+                                )
+                                .clicked()
+                            {
+                                self.show_password = !self.show_password;
+                            }
+                        });
+                    });
+                });
+                ui.add_space(12.0);
+                let label = match (done, self.mode) {
+                    (true, _) => "닫기",
+                    (false, Mode::Encrypt) => "암호화 시작",
+                    (false, _) => "복호화 시작",
+                };
+                let clicked = ui
+                    .add_enabled_ui(!busy, |ui| {
+                        ui.add_sized(
+                            [ui.available_width(), 40.0],
+                            egui::Button::new(
+                                egui::RichText::new(label)
+                                    .size(15.0)
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(pal.accent)
+                            .stroke(egui::Stroke::NONE)
+                            .corner_radius(RADIUS),
+                        )
+                        .clicked()
+                    })
+                    .inner;
+                if clicked && done {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                } else if clicked {
+                    self.start(ctx);
+                }
+                ui.add_space(10.0);
+                self.status_ui(ui, ctx, pal);
+            });
+    }
+}
+/// Plaintext bytes behind an ESB of `len` bytes (format-v1): header 64, META
+/// 29+2+name, FINAL 29+48, and 29 bytes (record header + tag) per DATA chunk.
+/// The unknown name length makes it a slight overestimate. Only drives the bar.
+fn estimated_plaintext(len: u64) -> u64 {
+    let body = len.saturating_sub(64 + 29 + 2 + 29 + 48);
+    let records = body.div_ceil(withcrypt_core::CHUNK_SIZE as u64 + 29);
+    body.saturating_sub(records * 29)
+}
+fn expected_total(mode: Mode, input: &Path) -> u64 {
+    let len = std::fs::metadata(input).map_or(0, |m| m.len());
+    if mode == Mode::Encrypt {
+        len
+    } else {
+        estimated_plaintext(len)
+    }
+}
+/// None while the size is unknown (key derivation): the bar runs indeterminate.
+fn progress_fraction(p: Progress, total: u64) -> Option<f32> {
+    match p.stage {
+        Stage::Kdf => None,
+        Stage::Committing | Stage::Complete => Some(1.0),
+        Stage::Processing | Stage::Verifying if total == 0 => Some(1.0),
+        Stage::Processing | Stage::Verifying => {
+            Some((p.bytes as f64 / total as f64).min(1.0) as f32)
+        }
+    }
+}
+fn progress_bar(ui: &mut egui::Ui, pal: &Palette, width: f32, fraction: Option<f32>) {
+    let height = 8.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, height / 2.0, pal.track);
+    let time = ui.input(|i| i.time) as f32;
+    let fill = match fraction {
+        Some(f) if f > 0.0 => {
+            egui::Rect::from_min_size(rect.min, egui::vec2((rect.width() * f).max(height), height))
+        }
+        Some(_) => return,
+        None => {
+            // Indeterminate: a short segment gliding back and forth.
+            let segment = rect.width() * 0.28;
+            let t = (time * 1.6).sin() * 0.5 + 0.5;
+            let left = rect.left() + (rect.width() - segment) * t;
+            ui.ctx().request_repaint();
+            egui::Rect::from_min_size(egui::pos2(left, rect.top()), egui::vec2(segment, height))
+        }
+    };
+    gradient_pill(painter, fill, pal.accent, pal.accent_alt);
+    if fraction.is_some_and(|f| f < 1.0) {
+        // A soft sheen sweeping across the filled part while work continues.
+        let band = 48.0;
+        let x = fill.left() - band + (time * 90.0) % (fill.width() + band * 2.0);
+        let clip = painter.with_clip_rect(fill.shrink2(egui::vec2(height / 2.0, 0.0)));
+        let glow = egui::Color32::from_white_alpha(70);
+        let clear = egui::Color32::TRANSPARENT;
+        let mut mesh = egui::Mesh::default();
+        for (dx, color) in [(0.0, clear), (band / 2.0, glow), (band, clear)] {
+            mesh.colored_vertex(egui::pos2(x + dx, fill.top()), color);
+            mesh.colored_vertex(egui::pos2(x + dx, fill.bottom()), color);
+        }
+        for i in [0, 2] {
+            mesh.add_triangle(i, i + 1, i + 2);
+            mesh.add_triangle(i + 2, i + 1, i + 3);
+        }
+        clip.add(mesh);
+        ui.ctx().request_repaint();
+    }
+}
+/// Horizontal gradient with round caps: anti-aliased caps plus a gradient body.
+fn gradient_pill(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    left: egui::Color32,
+    right: egui::Color32,
+) {
+    let r = rect.height() / 2.0;
+    if rect.width() <= rect.height() + 1.0 {
+        painter.rect_filled(rect, r, left);
+        return;
+    }
+    let (a, b) = (rect.left() + r, rect.right() - r);
+    painter.circle_filled(egui::pos2(a, rect.center().y), r, left);
+    painter.circle_filled(egui::pos2(b, rect.center().y), r, right);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(egui::pos2(a, rect.top()), left);
+    mesh.colored_vertex(egui::pos2(a, rect.bottom()), left);
+    mesh.colored_vertex(egui::pos2(b, rect.top()), right);
+    mesh.colored_vertex(egui::pos2(b, rect.bottom()), right);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(2, 1, 3);
+    painter.add(mesh);
+}
+const CANCELLING: &str = "안전하게 취소하는 중입니다. 키 파생이 끝날 때까지 잠시 기다려 주세요.";
 const LOGO: &[u8] = include_bytes!("../../../resources/ProgramIcon.png");
 const RADIUS: u8 = 8;
 const FIELD_HEIGHT: f32 = 32.0;
@@ -565,6 +881,8 @@ struct Palette {
     muted: egui::Color32,
     accent: egui::Color32,
     accent_hover: egui::Color32,
+    accent_alt: egui::Color32,
+    track: egui::Color32,
     success: egui::Color32,
     warning: egui::Color32,
     danger: egui::Color32,
@@ -582,6 +900,8 @@ impl Palette {
                 muted: C::from_rgb(0x8b, 0x92, 0xa1),
                 accent: C::from_rgb(0x5b, 0x6c, 0xf9),
                 accent_hover: C::from_rgb(0x72, 0x81, 0xfb),
+                accent_alt: C::from_rgb(0x9b, 0x6c, 0xf6),
+                track: C::from_rgb(0x2a, 0x2f, 0x3b),
                 success: C::from_rgb(0x34, 0xc7, 0x7b),
                 warning: C::from_rgb(0xf2, 0xb3, 0x4b),
                 danger: C::from_rgb(0xf0, 0x5d, 0x5e),
@@ -596,6 +916,8 @@ impl Palette {
                 muted: C::from_rgb(0x6b, 0x72, 0x80),
                 accent: C::from_rgb(0x4f, 0x5b, 0xe8),
                 accent_hover: C::from_rgb(0x43, 0x4e, 0xd6),
+                accent_alt: C::from_rgb(0x85, 0x4d, 0xe8),
+                track: C::from_rgb(0xe3, 0xe6, 0xee),
                 success: C::from_rgb(0x1f, 0x9d, 0x5c),
                 warning: C::from_rgb(0xc2, 0x7c, 0x0e),
                 danger: C::from_rgb(0xd9, 0x3a, 0x3b),
@@ -662,7 +984,13 @@ fn segmented(ui: &mut egui::Ui, pal: &Palette, value: &mut Mode, options: &[(Mod
             });
         });
 }
-fn password_edit(ui: &mut egui::Ui, text: &mut String, show: bool, id: &str, width: f32) {
+fn password_edit(
+    ui: &mut egui::Ui,
+    text: &mut String,
+    show: bool,
+    id: &str,
+    width: f32,
+) -> egui::Response {
     let mut output = egui::TextEdit::singleline(text)
         .password(!show)
         .id_salt(id)
@@ -674,6 +1002,7 @@ fn password_edit(ui: &mut egui::Ui, text: &mut String, show: bool, id: &str, wid
     // Do not retain plaintext password history in the framework's undo buffer.
     output.state.clear_undoer();
     output.state.store(ui.ctx(), output.response.id);
+    output.response.response
 }
 fn apply_style(style: &mut egui::Style, pal: &Palette) {
     use egui::{FontFamily::Proportional, FontId, Stroke, TextStyle};
@@ -765,14 +1094,75 @@ fn configure(ctx: &egui::Context) {
         ctx.style_mut_of(theme, |style| apply_style(style, &pal));
     }
 }
+const USAGE: &str = "사용법: withcrypt-desktop [--encrypt 파일 | --decrypt 파일 | --register-shell | --unregister-shell]";
+enum Launch {
+    Window,
+    Shell(Mode, PathBuf),
+    Register,
+    Unregister,
+}
+fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
+    match args {
+        [] => Some(Launch::Window),
+        [flag] if flag.as_os_str() == "--register-shell" => Some(Launch::Register),
+        [flag] if flag.as_os_str() == "--unregister-shell" => Some(Launch::Unregister),
+        [flag, path] if flag.as_os_str() == "--encrypt" => {
+            Some(Launch::Shell(Mode::Encrypt, path.into()))
+        }
+        [flag, path] if flag.as_os_str() == "--decrypt" => {
+            Some(Launch::Shell(Mode::Decrypt, path.into()))
+        }
+        _ => None,
+    }
+}
+fn notice(text: &str, error: bool) {
+    rfd::MessageDialog::new()
+        .set_title("WithCrypt")
+        .set_description(text)
+        .set_level(if error {
+            rfd::MessageLevel::Error
+        } else {
+            rfd::MessageLevel::Info
+        })
+        .show();
+}
 fn main() -> eframe::Result {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let (app, size) = match parse_launch(&args) {
+        Some(Launch::Window) => (Desktop::default(), [600.0, 548.0]),
+        Some(Launch::Shell(mode, path)) => (Desktop::for_shell(mode, path), [480.0, 512.0]),
+        Some(Launch::Register) => {
+            let result = std::env::current_exe()
+                .map_err(|e| e.to_string())
+                .and_then(|exe| shell_menu::register(&exe));
+            match result {
+                Ok(()) => notice(
+                    "탐색기 메뉴를 등록했습니다.\nWindows 11에서는 '더 많은 옵션 표시' 안에 나타납니다.",
+                    false,
+                ),
+                Err(e) => notice(&e, true),
+            }
+            return Ok(());
+        }
+        Some(Launch::Unregister) => {
+            match shell_menu::unregister() {
+                Ok(()) => notice("탐색기 메뉴를 해제했습니다.", false),
+                Err(e) => notice(&e, true),
+            }
+            return Ok(());
+        }
+        None => {
+            notice(USAGE, true);
+            return Ok(());
+        }
+    };
     let icon = eframe::icon_data::from_png_bytes(LOGO)
         .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_icon(icon)
             .with_resizable(false)
-            .with_inner_size([600.0, 500.0])
+            .with_inner_size(size)
             .with_maximize_button(false),
         ..Default::default()
     };
@@ -781,7 +1171,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             configure(&cc.egui_ctx);
-            Ok(Box::new(Desktop::default()))
+            Ok(Box::new(app))
         }),
     )
 }
@@ -796,6 +1186,84 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             thread::sleep(Duration::from_millis(5));
         }
+    }
+    #[test]
+    fn progress_estimate_tracks_plaintext() {
+        let ctx = egui::Context::default();
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("big.bin");
+        let size = withcrypt_core::CHUNK_SIZE * 2 + 12345;
+        std::fs::write(&input, vec![7u8; size]).unwrap();
+        assert_eq!(expected_total(Mode::Encrypt, &input), size as u64);
+        let mut app = Desktop::default();
+        app.input = input.to_string_lossy().into_owned();
+        app.password = Zeroizing::new("pw".into());
+        app.start_with_chooser(&ctx, &mut |input, name, _| Some(input.with_file_name(name)));
+        wait(&mut app);
+        let estimate = expected_total(Mode::Decrypt, &dir.path().join("big.bin.esb"));
+        // Off only by the stored filename length ("big.bin").
+        assert_eq!(estimate, size as u64 + "big.bin".len() as u64);
+        let at = |stage, bytes| progress_fraction(Progress { stage, bytes }, 200);
+        assert_eq!(at(Stage::Kdf, 0), None);
+        assert_eq!(at(Stage::Processing, 50), Some(0.25));
+        assert_eq!(at(Stage::Verifying, 999), Some(1.0));
+        assert_eq!(at(Stage::Committing, 0), Some(1.0));
+        assert_eq!(estimated_plaintext(0), 0);
+    }
+    #[test]
+    fn launch_arguments() {
+        let args = |v: &[&str]| {
+            v.iter()
+                .map(Into::into)
+                .collect::<Vec<std::ffi::OsString>>()
+        };
+        assert!(matches!(parse_launch(&args(&[])), Some(Launch::Window)));
+        assert!(matches!(
+            parse_launch(&args(&["--encrypt", "a b.txt"])),
+            Some(Launch::Shell(Mode::Encrypt, p)) if p == Path::new("a b.txt")
+        ));
+        assert!(matches!(
+            parse_launch(&args(&["--decrypt", "a.esb"])),
+            Some(Launch::Shell(Mode::Decrypt, _))
+        ));
+        assert!(matches!(
+            parse_launch(&args(&["--register-shell"])),
+            Some(Launch::Register)
+        ));
+        assert!(parse_launch(&args(&["--encrypt"])).is_none());
+        assert!(parse_launch(&args(&["--verify", "a.esb"])).is_none());
+    }
+    #[test]
+    fn shell_mode_saves_beside_input_without_dialog() {
+        let ctx = egui::Context::default();
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("보고서 v2.pdf");
+        std::fs::write(&input, b"shell data").unwrap();
+        let mut app = Desktop::for_shell(Mode::Encrypt, input.clone());
+        app.password = Zeroizing::new("pw".into());
+        app.start(&ctx);
+        wait(&mut app);
+        assert!(app.message.starts_with("완료"), "{}", app.message);
+        let encrypted = dir.path().join("보고서 v2.pdf.esb");
+        assert!(encrypted.exists());
+        // An existing result is never overwritten.
+        app.password = Zeroizing::new("pw".into());
+        app.start(&ctx);
+        wait(&mut app);
+        assert!(app.message.contains("이미 존재"), "{}", app.message);
+
+        std::fs::rename(&input, dir.path().join("moved.pdf")).unwrap();
+        let mut app = Desktop::for_shell(Mode::Decrypt, encrypted);
+        assert!(!app.preview.is_empty());
+        app.password = Zeroizing::new("pw".into());
+        app.start(&ctx);
+        wait(&mut app);
+        assert!(app.prepared.is_some());
+        let mut choose = app.chooser();
+        app.save_prepared(&ctx, &mut choose);
+        wait(&mut app);
+        assert!(app.message.starts_with("완료"), "{}", app.message);
+        assert_eq!(std::fs::read(&input).unwrap(), b"shell data");
     }
     #[test]
     fn background_worker_both_suites() {

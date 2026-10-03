@@ -1,6 +1,6 @@
 # 의존성 라이선스 확인
 
-2026-10-03 기준 `cargo metadata --locked --format-version 1`로 워크스페이스 자체 패키지를 제외한 외부 패키지 422개의 선언된 라이선스를 확인했다. 특정 OS로 필터링하지 않아 플랫폼별·개발용 의존성도 포함한다. 라이선스 메타데이터 누락은 없었다.
+2026-10-03 기준 `cargo metadata --locked --format-version 1`로 워크스페이스 자체 패키지를 제외한 외부 패키지 423개의 선언된 라이선스를 확인했다. 특정 OS로 필터링하지 않아 플랫폼별·개발용 의존성도 포함한다. 라이선스 메타데이터 누락은 없었다.
 
 GPL/LGPL만을 필수로 요구하는 라이선스 표현식은 없었다. 다음 OR 선택지는 명시적으로 비 GPL 항목을 선택한다.
 
@@ -385,6 +385,7 @@ WithCrypt 자체 코드에는 MIT를 적용한다. 이것이 의존성을 MIT로
 | windows-interface | 0.59.3 | MIT OR Apache-2.0 |
 | windows-link | 0.2.1 | MIT OR Apache-2.0 |
 | windows-numerics | 0.3.1 | MIT OR Apache-2.0 |
+| windows-registry | 0.6.1 | MIT OR Apache-2.0 |
 | windows-result | 0.4.1 | MIT OR Apache-2.0 |
 | windows-strings | 0.5.1 | MIT OR Apache-2.0 |
 | windows-sys | 0.52.0 | MIT OR Apache-2.0 |

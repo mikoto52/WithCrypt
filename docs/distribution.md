@@ -16,7 +16,12 @@ Xcode Command Line Tools가 필요하다. CLI는 `target/release/withcrypt`, GUI
 
 ## Windows
 
-MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo build --release --locked --workspace` 후 `withcrypt.exe`와 `withcrypt-desktop.exe`를 배포한다. NTFS의 하드링크와 시스템 `whoami.exe`, `icacls.exe`가 필요하다. Windows 임시 평문은 현재 사용자 SID만 접근하도록 ACL을 적용하고 그 ACL을 최종 파일에 유지한다. 실제 NTFS no-clobber, ACL, 취소·정리 및 한글 IME 검증은 Windows CI/수동 검증에서 확인한다. FAT 계열 등 하드링크 미지원 볼륨은 오류를 낸다.
+MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo build --release --locked --workspace` 후 `withcrypt.exe`와 `withcrypt-desktop.exe`를 배포한다. 시스템 `whoami.exe`, `icacls.exe`가 필요하다. 출력 파일은 내용을 쓰기 전에 현재 사용자 SID만 접근하도록 ACL을 적용한다. 실제 NTFS no-clobber, ACL, 취소·정리 및 한글 IME 검증은 Windows CI/수동 검증에서 확인한다.
+
+탐색기 메뉴(ADR-004)는 두 가지다. `withcrypt-desktop.exe`, `withcrypt_shell.dll`을 같은 폴더에 둔다.
+
+- 클래식 메뉴: `withcrypt-desktop.exe --register-shell`로 현재 사용자(HKCU)에 등록하고 `--unregister-shell`로 제거한다. 관리자 권한이 필요 없다. 실행 파일을 옮기면 다시 등록한다. Windows 11에서는 "더 많은 옵션 표시" 안에 나타난다.
+- Windows 11 새 메뉴: `cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell` 후 `scripts/package-windows-shell.ps1 -Publisher "CN=..." -CertificatePath <pfx> [-Install]`로 sparse package를 만들고 서명·설치한다. Windows SDK(makeappx, signtool)와 설치 PC가 신뢰하는 코드 서명 인증서가 필요하다. `-Publisher`는 인증서 Subject와 같아야 한다. 제거는 `Get-AppxPackage WithCrypt.ShellExtension | Remove-AppxPackage`.
 
 ## Linux
 
