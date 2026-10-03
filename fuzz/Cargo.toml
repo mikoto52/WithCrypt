@@ -1,0 +1,21 @@
+[package]
+name = "withcrypt-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+withcrypt-core = { path = "../crates/withcrypt-core" }
+
+[workspace]
+
+[[bin]]
+name = "headers"
+path = "fuzz_targets/headers.rs"
+test = false
+doc = false
+bench = false

@@ -1,0 +1,21 @@
+[workspace]
+members = ["crates/withcrypt-core", "crates/withcrypt-cli", "crates/withcrypt-desktop"]
+default-members = ["crates/withcrypt-core", "crates/withcrypt-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+withcrypt-core = { path = "crates/withcrypt-core" }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[profile.test]
+opt-level = 2

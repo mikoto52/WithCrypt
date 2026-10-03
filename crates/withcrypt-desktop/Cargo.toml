@@ -1,0 +1,19 @@
+[package]
+name = "withcrypt-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "withcrypt-desktop"
+path = "src/main.rs"
+
+[dependencies]
+withcrypt-core.workspace = true
+zeroize.workspace = true
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "accesskit", "x11", "wayland"] }
+rfd = "0.17.2"
+
+[dev-dependencies]
+tempfile = "3"
