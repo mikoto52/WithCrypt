@@ -104,13 +104,21 @@ fn run(command: Command) -> bool {
                 // Older releases registered both styles. Remove that stale
                 // classic registration after modern setup succeeds.
                 report("중복 클래식 메뉴 해제", classic::unregister())
+            } else if modern::registered() {
+                // An earlier elevated install is still active. Adding the classic
+                // menu now would show the decrypt command twice for .esb files.
+                println!("[건너뜀] 클래식 메뉴: 관리자 권한으로 설치된 새 메뉴가 이미 있습니다");
+                false
             } else {
                 // Never leave the user without a menu: fall back to the classic
                 // one, which needs neither a signature nor administrator rights.
                 println!("[대체] 클래식 메뉴로 등록합니다 ('더 많은 옵션 표시' 안에 나타남)");
                 report("클래식 메뉴", classic::register(&desktop, &shell_icon))
             };
-            if ok {
+            if ok && modern_ok {
+                // Explorer loads packaged menu extensions only when it starts.
+                println!("새 메뉴는 탐색기를 다시 시작하거나 다시 로그인해야 나타납니다.");
+            } else if ok {
                 println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
             }
             ok

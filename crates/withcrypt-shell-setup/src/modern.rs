@@ -68,7 +68,24 @@ pub fn installed() -> Result<Option<String>, String> {
         "Get-AppxPackage -Name {} | ForEach-Object {{ \"$($_.Version) $($_.InstallLocation)\" }}",
         ps_quote(PACKAGE_NAME)
     ))?;
-    Ok((!text.is_empty()).then_some(text))
+    if !text.is_empty() {
+        return Ok(Some(text));
+    }
+    // An unsigned package installed from an elevated prompt is hidden from a
+    // non-elevated Get-AppxPackage, but its packaged COM registration (which
+    // Explorer uses) is still visible to the user.
+    Ok(packaged_com_registration().map(|name| format!("{name} (관리자 권한 설치)")))
+}
+
+/// Full package name from the user's packaged COM catalog, if registered.
+fn packaged_com_registration() -> Option<String> {
+    let prefix = format!("{PACKAGE_NAME}_");
+    windows_registry::CURRENT_USER
+        .open(r"Software\Classes\PackagedCom\Package")
+        .ok()?
+        .keys()
+        .ok()?
+        .find(|name| name.starts_with(&prefix))
 }
 
 /// Installs the package with this folder as its external location.
@@ -92,8 +109,22 @@ pub fn unregister() -> Result<(), String> {
         "Get-AppxPackage -Name {} | Remove-AppxPackage",
         ps_quote(PACKAGE_NAME)
     ))
-    .map(drop)
-    .map_err(explain)
+    .map_err(explain)?;
+    // Get-AppxPackage cannot see an elevated install, so the pipeline above
+    // silently removes nothing. Report it instead of claiming success.
+    if registered() {
+        return Err(
+            "관리자 권한으로 설치된 패키지라 지금 권한으로는 해제할 수 없습니다. \
+             관리자 권한 명령 프롬프트에서 다시 실행하세요."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// True while Explorer can still see the package's menu registration.
+pub fn registered() -> bool {
+    packaged_com_registration().is_some()
 }
 
 /// Adds a hint to PowerShell errors that usually mean "run as administrator".
