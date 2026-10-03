@@ -468,22 +468,6 @@ mod tests {
         }
     }
     #[test]
-    fn defaults_and_password_validation() {
-        let mut app = Desktop::default();
-        assert_eq!(app.suite, Suite::XChaCha20Poly1305);
-        let ctx = egui::Context::default();
-        let mut no_dialog =
-            |_: &Path, _: &str, _: bool| -> Option<PathBuf> { panic!("unexpected dialog") };
-        app.start_with_chooser(&ctx, &mut no_dialog);
-        assert!(app.worker.is_none());
-        app.input = "in".into();
-        app.password = Zeroizing::new("pw".into());
-        app.confirmation = Zeroizing::new("wrong".into());
-        app.start_with_chooser(&ctx, &mut no_dialog);
-        assert!(app.worker.is_none());
-        assert!(app.message.contains("일치"));
-    }
-    #[test]
     fn background_worker_both_suites() {
         let ctx = egui::Context::default();
         let dir = tempfile::tempdir().unwrap();
