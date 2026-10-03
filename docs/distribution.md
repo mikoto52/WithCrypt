@@ -21,12 +21,13 @@ MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo bui
 탐색기 메뉴(ADR-004)는 두 가지 구현을 제공하지만 중복 표시를 막기 위해 하나만 활성화한다. Windows 11 기본 등록은 새 메뉴, 이전 Windows와 `--classic-only`는 클래식 메뉴를 사용한다. `withcrypt-desktop.exe`, `withcrypt_shell.dll`, `withcrypt-shell-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
 
 ```powershell
-cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup
-.\scripts\package-windows-shell.ps1 -Unsigned   # 코드 서명 전: 서명 없는 패키지 (Windows 11, Windows SDK 필요)
+.\scripts\build-windows.ps1                    # 릴리스 빌드 + 아이콘 + 서명 없는 테스트 패키지
 .\target\release\withcrypt-shell-setup.exe register
 .\target\release\withcrypt-shell-setup.exe status
 .\target\release\withcrypt-shell-setup.exe unregister
 ```
+
+`cargo build`만 직접 실행하면 탐색기에서 참조하는 `ShellIcon.ico`와 MSIX가 출력 폴더에 복사되지 않는다. 탐색기 통합을 시험할 때는 `build-windows.ps1`을 사용한다. 서명 배포물은 `-Publisher "CN=..." -CertificatePath <pfx>`를 함께 전달한다.
 
 - 클래식 메뉴: 현재 사용자(HKCU)에 등록한다. 관리자 권한이 필요 없다. 실행 파일을 옮기면 다시 등록한다. Windows 11에서는 "더 많은 옵션 표시" 안에 나타난다. `register --classic-only`는 이것만 등록한다.
 - Windows 11 새 메뉴: 패키징 스크립트가 만든 `WithCrypt.Shell.msix`를 `Add-AppxPackage -AllowUnsigned`로 설치한다. 서명 빌드는 `-Publisher "CN=..." -CertificatePath <pfx>`로 만들며 `-Publisher`는 인증서 Subject와 같아야 한다. Windows 10에서는 건너뛴다.
