@@ -57,14 +57,13 @@ pub fn compile(binary: &str, product_name: &str, original_filename: &str, icon: 
     let [major, minor, patch, build] = numeric_version(&version);
     let resource_script = format!(
         r#"#pragma code_page(65001)
-#include <windows.h>
 {icon_line}1 VERSIONINFO
 FILEVERSION {major},{minor},{patch},{build}
 PRODUCTVERSION {major},{minor},{patch},{build}
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
-FILEOS VOS_NT_WINDOWS32
-FILETYPE VFT_APP
+FILEOS 0x00040004L
+FILETYPE 0x1L
 FILESUBTYPE 0x0L
 BEGIN
     BLOCK "StringFileInfo"
