@@ -11,7 +11,7 @@ mod modern;
 const USAGE: &str = "\
 사용법: withcrypt-setup <명령>
 
-  register     클래식 + Windows 11 새 메뉴 등록
+  register     Windows 11 새 메뉴 등록 (실패 시 클래식 메뉴)
   register --classic-only
                클래식 메뉴만 등록 ('더 많은 옵션 표시')
   unregister   두 메뉴 모두 해제
@@ -84,8 +84,9 @@ fn run(command: Command) -> bool {
                 }
                 return modern_ok && classic_ok;
             }
-            // The classic command remains available under "Show more options"
-            // even if the Windows 11 package cannot be installed.
+            // Install classic first as a fallback. A successful packaged verb
+            // also appears in the classic surface, so remove the registry copy
+            // afterward to avoid duplicate decrypt commands.
             let classic_ok = report("클래식 메뉴", classic::register(&gui, &shell_icon));
             if !modern::supported() {
                 println!("[건너뜀] Windows 11 새 메뉴: Windows 11에서만 지원합니다");
@@ -104,12 +105,14 @@ fn run(command: Command) -> bool {
                 },
             );
             if modern_ok {
+                let classic_removed = report("중복 클래식 메뉴 해제", classic::unregister());
                 // Explorer loads packaged menu extensions only when it starts.
                 println!("새 메뉴는 탐색기를 다시 시작하거나 다시 로그인해야 나타납니다.");
+                return classic_removed;
             } else if classic_ok {
                 println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
             }
-            classic_ok && modern_ok
+            classic_ok
         }
         Command::Unregister => {
             let mut ok = report("클래식 메뉴 해제", classic::unregister());

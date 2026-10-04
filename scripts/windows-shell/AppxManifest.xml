@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sparse package (external location) that registers the Windows 11 top-level
-     Explorer menu. __PUBLISHER__ and __VERSION__ are filled by
-     scripts/package-windows-shell.ps1. CLSIDs must match crates/withcrypt-shell. -->
+<!-- Sparse package (external location) that registers one dynamic Windows 11
+     Explorer command. __PUBLISHER__ and __VERSION__ are filled by
+     scripts/package-windows-shell.ps1. The CLSID must match withcrypt-shell. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
@@ -36,10 +36,7 @@
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
             <desktop5:ItemType Type="*">
-              <desktop5:Verb Id="WithCryptEncrypt" Clsid="1d78f081-7dff-47ce-88db-a06e5e8daa3e" />
-            </desktop5:ItemType>
-            <desktop5:ItemType Type=".esb">
-              <desktop5:Verb Id="WithCryptDecrypt" Clsid="02856102-e872-4e51-95a7-9ad715345703" />
+              <desktop5:Verb Id="WithCrypt" Clsid="1d78f081-7dff-47ce-88db-a06e5e8daa3e" />
             </desktop5:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>
@@ -47,7 +44,6 @@
           <com:ComServer>
             <com:SurrogateServer DisplayName="WithCrypt Explorer menu">
               <com:Class Id="1d78f081-7dff-47ce-88db-a06e5e8daa3e" Path="withcrypt_shell.dll" ThreadingModel="STA" />
-              <com:Class Id="02856102-e872-4e51-95a7-9ad715345703" Path="withcrypt_shell.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>

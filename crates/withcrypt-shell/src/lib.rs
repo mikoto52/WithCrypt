@@ -35,9 +35,9 @@ use windows_core::{
     BOOL, Error, GUID, HRESULT, HSTRING, IUnknown, Interface, PCWSTR, PWSTR, Ref, Result, implement,
 };
 
-/// Must match `scripts/windows-shell/AppxManifest.xml`.
-pub const ENCRYPT_CLSID: GUID = GUID::from_u128(0x1d78f081_7dff_47ce_88db_a06e5e8daa3e);
-pub const DECRYPT_CLSID: GUID = GUID::from_u128(0x02856102_e872_4e51_95a7_9ad715345703);
+/// Must match `scripts/windows-shell/AppxManifest.xml`. A single command avoids
+/// Windows grouping two verbs under a WithCrypt flyout.
+pub const COMMAND_CLSID: GUID = GUID::from_u128(0x1d78f081_7dff_47ce_88db_a06e5e8daa3e);
 /// Each item opens its own password window; refuse larger selections.
 const MAX_ITEMS: usize = 16;
 /// The app this DLL launches; it must sit in the same folder.
@@ -45,29 +45,12 @@ const GUI_EXE: &str = "withcrypt-gui.exe";
 const SHELL_ICON: &str = "ShellIcon.ico";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-/// Which menu entry a COM object represents (one CLSID per entry).
-enum Verb {
+/// Operation selected from the authenticated file extension.
+enum Action {
     Encrypt,
     Decrypt,
 }
-impl Verb {
-    /// Maps a CLSID requested by Explorer to its menu entry.
-    fn from_clsid(clsid: &GUID) -> Option<Self> {
-        if *clsid == ENCRYPT_CLSID {
-            Some(Self::Encrypt)
-        } else if *clsid == DECRYPT_CLSID {
-            Some(Self::Decrypt)
-        } else {
-            None
-        }
-    }
-    /// Also returned as the command's canonical name.
-    fn clsid(self) -> GUID {
-        match self {
-            Self::Encrypt => ENCRYPT_CLSID,
-            Self::Decrypt => DECRYPT_CLSID,
-        }
-    }
+impl Action {
     /// Menu text shown in Explorer.
     fn title(self) -> &'static str {
         match self {
@@ -82,20 +65,26 @@ impl Verb {
             Self::Decrypt => "--decrypt",
         }
     }
-    /// Encrypt applies to every file except `.esb`; Decrypt only to `.esb`.
-    fn accepts(self, path: &Path) -> bool {
-        let esb = path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("esb"));
-        match self {
-            Self::Encrypt => !esb,
-            Self::Decrypt => esb,
+    /// A selection uses one action only; mixed ESB/non-ESB selections are hidden.
+    fn for_paths(paths: &[PathBuf]) -> Option<Self> {
+        if paths.is_empty() || paths.len() > MAX_ITEMS {
+            return None;
         }
+        let first_is_esb = is_esb(&paths[0]);
+        paths
+            .iter()
+            .all(|path| is_esb(path) == first_is_esb)
+            .then_some(if first_is_esb {
+                Self::Decrypt
+            } else {
+                Self::Encrypt
+            })
     }
-    /// True when every selected item fits this entry and the selection is small enough.
-    fn applies_to(self, paths: &[PathBuf]) -> bool {
-        !paths.is_empty() && paths.len() <= MAX_ITEMS && paths.iter().all(|p| self.accepts(p))
-    }
+}
+
+fn is_esb(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("esb"))
 }
 
 /// File-system paths of the items selected in Explorer. Oversized selections
@@ -150,11 +139,17 @@ fn co_string(text: &str) -> Result<PWSTR> {
 #[implement(IExplorerCommand)]
 /// One context-menu entry. Explorer asks it for a title, an icon and a
 /// visibility state, and calls `Invoke` when the user clicks it.
-struct ExplorerCommand(Verb);
+struct ExplorerCommand;
 
 impl IExplorerCommand_Impl for ExplorerCommand_Impl {
-    fn GetTitle(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
-        co_string(self.0.title())
+    fn GetTitle(&self, items: Ref<IShellItemArray>) -> Result<PWSTR> {
+        let title = items
+            .ok()
+            .and_then(selected_paths)
+            .ok()
+            .and_then(|paths| Action::for_paths(&paths))
+            .map_or("WithCrypt", Action::title);
+        co_string(title)
     }
     /// Explorer accepts a standalone ICO path for an IExplorerCommand icon.
     fn GetIcon(&self, _items: Ref<IShellItemArray>) -> Result<PWSTR> {
@@ -164,26 +159,30 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
         Err(E_NOTIMPL.into())
     }
     fn GetCanonicalName(&self) -> Result<GUID> {
-        Ok(self.0.clsid())
+        Ok(COMMAND_CLSID)
     }
     /// Shows the entry only for selections it can handle; hides it otherwise.
     fn GetState(&self, items: Ref<IShellItemArray>, _ok_to_be_slow: BOOL) -> Result<u32> {
-        let visible = items
+        let action = items
             .ok()
             .and_then(selected_paths)
-            .is_ok_and(|paths| self.0.applies_to(&paths));
-        Ok(if visible { ECS_ENABLED } else { ECS_HIDDEN }.0 as u32)
+            .ok()
+            .and_then(|paths| Action::for_paths(&paths));
+        Ok(if action.is_some() {
+            ECS_ENABLED
+        } else {
+            ECS_HIDDEN
+        }
+        .0 as u32)
     }
     /// Starts one `withcrypt-gui.exe --encrypt|--decrypt <file>` per item.
     fn Invoke(&self, items: Ref<IShellItemArray>, _bind: Ref<IBindCtx>) -> Result<()> {
         let paths = selected_paths(items.ok()?)?;
-        if !self.0.applies_to(&paths) {
-            return Err(E_FAIL.into());
-        }
+        let action = Action::for_paths(&paths).ok_or_else(|| Error::from(E_FAIL))?;
         let exe = gui_exe()?;
         for path in paths {
             Command::new(&exe)
-                .arg(self.0.flag())
+                .arg(action.flag())
                 .arg(path)
                 .spawn()
                 .map_err(|e| Error::new(E_FAIL, e.to_string()))?;
@@ -200,7 +199,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
 
 #[implement(IClassFactory)]
 /// COM class factory: creates `ExplorerCommand` objects for one entry.
-struct Factory(Verb);
+struct Factory;
 
 impl IClassFactory_Impl for Factory_Impl {
     fn CreateInstance(
@@ -217,7 +216,7 @@ impl IClassFactory_Impl for Factory_Impl {
         if outer.is_some() {
             return Err(CLASS_E_NOAGGREGATION.into());
         }
-        let command: IExplorerCommand = ExplorerCommand(self.0).into();
+        let command: IExplorerCommand = ExplorerCommand.into();
         // SAFETY: iid/object were checked; query writes a referenced pointer or null.
         unsafe { command.query(iid, object) }.ok()
     }
@@ -239,10 +238,10 @@ pub unsafe extern "system" fn DllGetClassObject(
     }
     // SAFETY: checked non-null above.
     unsafe { *object = null_mut() };
-    let Some(verb) = Verb::from_clsid(unsafe { &*clsid }) else {
+    if unsafe { *clsid } != COMMAND_CLSID {
         return CLASS_E_CLASSNOTAVAILABLE;
-    };
-    let factory: IClassFactory = Factory(verb).into();
+    }
+    let factory: IClassFactory = Factory.into();
     // SAFETY: iid/object were checked.
     unsafe { factory.query(iid, object) }
 }
@@ -257,31 +256,39 @@ pub extern "system" fn DllCanUnloadNow() -> HRESULT {
 mod tests {
     use super::*;
     #[test]
-    fn verbs_split_on_esb_extension() {
+    fn action_follows_esb_extension() {
         let paths = |v: &[&str]| v.iter().map(PathBuf::from).collect::<Vec<_>>();
-        assert!(Verb::Encrypt.applies_to(&paths(&[r"C:\a\보고서.pdf", r"C:\a\b.tar.gz"])));
-        assert!(!Verb::Encrypt.applies_to(&paths(&[r"C:\a\b.pdf", r"C:\a\c.ESB"])));
-        assert!(Verb::Decrypt.applies_to(&paths(&[r"C:\a\c.esb", r"C:\a\d.Esb"])));
-        assert!(!Verb::Decrypt.applies_to(&paths(&[r"C:\a\c.esb.txt"])));
-        assert!(!Verb::Encrypt.applies_to(&[]));
-        assert!(!Verb::Encrypt.applies_to(&vec![PathBuf::from("a"); MAX_ITEMS + 1]));
-        assert_eq!(Verb::from_clsid(&ENCRYPT_CLSID), Some(Verb::Encrypt));
-        assert_eq!(Verb::from_clsid(&DECRYPT_CLSID), Some(Verb::Decrypt));
-        assert_eq!(Verb::from_clsid(&GUID::zeroed()), None);
+        assert_eq!(
+            Action::for_paths(&paths(&[r"C:\a\보고서.pdf", r"C:\a\b.tar.gz"])),
+            Some(Action::Encrypt)
+        );
+        assert_eq!(
+            Action::for_paths(&paths(&[r"C:\a\c.esb", r"C:\a\d.Esb"])),
+            Some(Action::Decrypt)
+        );
+        assert_eq!(
+            Action::for_paths(&paths(&[r"C:\a\b.pdf", r"C:\a\c.ESB"])),
+            None
+        );
+        assert_eq!(Action::for_paths(&[]), None);
+        assert_eq!(
+            Action::for_paths(&vec![PathBuf::from("a"); MAX_ITEMS + 1]),
+            None
+        );
     }
     #[test]
     fn class_factory_creates_commands() {
         let mut object = null_mut();
-        let hr = unsafe { DllGetClassObject(&ENCRYPT_CLSID, &IClassFactory::IID, &mut object) };
+        let hr = unsafe { DllGetClassObject(&COMMAND_CLSID, &IClassFactory::IID, &mut object) };
         assert!(hr.is_ok());
         let factory = unsafe { IClassFactory::from_raw(object) };
         let command: IExplorerCommand = unsafe { factory.CreateInstance(None) }.unwrap();
         let title = unsafe { command.GetTitle(None) }.unwrap();
-        assert_eq!(unsafe { title.to_string() }.unwrap(), "WithCrypt로 암호화");
+        assert_eq!(unsafe { title.to_string() }.unwrap(), "WithCrypt");
         unsafe { CoTaskMemFree(Some(title.0 as *const c_void)) };
         assert_eq!(
             unsafe { command.GetCanonicalName() }.unwrap(),
-            ENCRYPT_CLSID
+            COMMAND_CLSID
         );
         let unknown = GUID::from_u128(1);
         assert_eq!(

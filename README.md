@@ -36,7 +36,7 @@ CLI 암호화의 `--output`은 선택 사항이며 생략하면 원본과 같은
 ```powershell
 .\scripts\build-windows.ps1                       # 빌드 + 아이콘 복사 + 테스트용 MSIX 생성
 .\target\release\withcrypt-setup.exe register
-withcrypt-setup.exe register                 # 클래식 + Windows 11 새 메뉴 등록
+withcrypt-setup.exe register                 # Windows 11 새 메뉴(클래식 화면에서도 사용 가능)
 withcrypt-setup.exe register --classic-only  # 클래식 메뉴만 (HKCU, 관리자 권한 불필요)
 withcrypt-setup.exe status
 withcrypt-setup.exe unregister
