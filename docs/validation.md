@@ -31,7 +31,7 @@ RAM 초과 실행의 `/usr/bin/time -l` 최대 RSS: **85,835,776 바이트 (81.8
 ## 발견하여 수정한 문제
 
 1. Clap enum 기본 이름이 요구된 `aes-256-gcm`과 달라 명시적 옵션 이름을 지정했다.
-2. macOS의 대소문자 비구분 파일시스템에서 CLI `withcrypt`와 GUI `WithCrypt`가 충돌했다. 실제 바이너리 이름을 `withcrypt`/`withcrypt-desktop`으로 분리하고 GUI 제품명과 앱 번들은 WithCrypt로 유지했다.
+2. macOS의 대소문자 비구분 파일시스템에서 CLI `withcrypt`와 GUI `WithCrypt`가 충돌했다. 실제 바이너리 이름을 `withcrypt`/`withcrypt-gui`로 분리하고 GUI 제품명과 앱 번들은 WithCrypt로 유지했다.
 3. 프롬프트 직후 즉시 입력하면 rpassword가 raw mode를 적용하기 전 에코될 수 있었다. crossterm으로 안내문 표시 전에 에코를 끄고, 성공/오류/취소에 터미널 상태를 복구한다.
 4. tempfile 디렉터리의 기본 권한에 의존하지 않고 Unix에서 생성 시 0700을 지정했다. AES 확장 키의 zeroize 기능도 명시적으로 켰다.
 

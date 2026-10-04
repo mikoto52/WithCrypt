@@ -1,5 +1,5 @@
 //! Windows 11 top-level Explorer context menu (IExplorerCommand), registered by
-//! the WithCrypt sparse package. It only launches `withcrypt-desktop.exe` beside
+//! the WithCrypt sparse package. It only launches `withcrypt-gui.exe` beside
 //! this DLL; it never sees passwords or file contents.
 //!
 //! Unsafe exception (ADR-004): COM exports and Shell API calls require FFI.
@@ -41,7 +41,7 @@ pub const DECRYPT_CLSID: GUID = GUID::from_u128(0x02856102_e872_4e51_95a7_9ad715
 /// Each item opens its own password window; refuse larger selections.
 const MAX_ITEMS: usize = 16;
 /// The app this DLL launches; it must sit in the same folder.
-const DESKTOP_EXE: &str = "withcrypt-desktop.exe";
+const GUI_EXE: &str = "withcrypt-gui.exe";
 const SHELL_ICON: &str = "ShellIcon.ico";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -75,7 +75,7 @@ impl Verb {
             Self::Decrypt => "WithCrypt로 복호화",
         }
     }
-    /// Command-line flag passed to `withcrypt-desktop.exe`.
+    /// Command-line flag passed to `withcrypt-gui.exe`.
     fn flag(self) -> &'static str {
         match self {
             Self::Encrypt => "--encrypt",
@@ -124,7 +124,7 @@ fn sibling_file(name: &str) -> Result<PathBuf> {
     unsafe {
         GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            PCWSTR(desktop_exe as *const () as *const u16),
+            PCWSTR(gui_exe as *const () as *const u16),
             &mut module,
         )?
     };
@@ -137,8 +137,8 @@ fn sibling_file(name: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(OsString::from_wide(&buffer[..len])).with_file_name(name))
 }
 
-fn desktop_exe() -> Result<PathBuf> {
-    sibling_file(DESKTOP_EXE)
+fn gui_exe() -> Result<PathBuf> {
+    sibling_file(GUI_EXE)
 }
 
 /// Copies `text` into a COM-allocated string, as IExplorerCommand requires.
@@ -174,13 +174,13 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
             .is_ok_and(|paths| self.0.applies_to(&paths));
         Ok(if visible { ECS_ENABLED } else { ECS_HIDDEN }.0 as u32)
     }
-    /// Starts one `withcrypt-desktop.exe --encrypt|--decrypt <file>` per item.
+    /// Starts one `withcrypt-gui.exe --encrypt|--decrypt <file>` per item.
     fn Invoke(&self, items: Ref<IShellItemArray>, _bind: Ref<IBindCtx>) -> Result<()> {
         let paths = selected_paths(items.ok()?)?;
         if !self.0.applies_to(&paths) {
             return Err(E_FAIL.into());
         }
-        let exe = desktop_exe()?;
+        let exe = gui_exe()?;
         for path in paths {
             Command::new(&exe)
                 .arg(self.0.flag())

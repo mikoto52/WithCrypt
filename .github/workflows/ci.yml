@@ -34,11 +34,11 @@ jobs:
           path: |
             LICENSE
             target/release/withcrypt
-            target/release/withcrypt-desktop
+            target/release/withcrypt-gui
             target/release/withcrypt.exe
-            target/release/withcrypt-desktop.exe
+            target/release/withcrypt-gui.exe
             target/release/withcrypt_shell.dll
-            target/release/withcrypt-shell-setup.exe
+            target/release/withcrypt-setup.exe
   audit:
     runs-on: ubuntu-latest
     steps:

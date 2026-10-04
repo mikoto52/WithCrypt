@@ -4,9 +4,9 @@
 
 ## 결정
 
-두 경로를 OS에 맞게 하나만 등록한다. Windows 11 기본 등록은 새 메뉴만 사용하고, 이전 Windows 및 `register --classic-only`는 클래식 메뉴만 사용한다. 두 등록을 동시에 유지하면 환경에 따라 `.esb` 복호화 메뉴가 중복 표시되기 때문이다. 둘 다 `withcrypt-desktop.exe --encrypt <파일>` 또는 `--decrypt <파일>`을 실행할 뿐이며 비밀번호와 파일 내용은 데스크톱 앱만 다룬다.
+두 경로를 함께 등록한다. Windows 11에서는 새 우클릭 화면과 "더 많은 옵션 표시"의 클래식 화면에서 모두 WithCrypt를 사용할 수 있다. 따라서 `.esb` 복호화 항목이 두 화면에 각각 하나씩 표시되는 것은 의도한 동작이다. 이전 Windows에서는 클래식 메뉴만 등록한다. 둘 다 `withcrypt-gui.exe --encrypt <파일>` 또는 `--decrypt <파일>`을 실행할 뿐이며 비밀번호와 파일 내용은 데스크톱 앱만 다룬다.
 
-등록·해제는 콘솔 Wrapper `withcrypt-shell-setup.exe`(`register`, `register --classic-only`, `unregister`, `status`)가 맡는다. 등록할 때 반대 방식의 기존 등록을 제거하므로 이전 버전에서 남은 중복 메뉴도 정리한다. 같은 폴더의 `withcrypt-desktop.exe`, `withcrypt_shell.dll`, `WithCrypt.Shell.msix`를 사용하며 이후 설치 프로그램도 이 Wrapper를 호출한다.
+등록·해제는 콘솔 Wrapper `withcrypt-setup.exe`(`register`, `register --classic-only`, `unregister`, `status`)가 맡는다. 기본 `register`는 두 메뉴를 모두 등록하고, `--classic-only`는 새 메뉴를 해제한 뒤 클래식 메뉴만 등록한다. 같은 폴더의 `withcrypt-gui.exe`, `withcrypt_shell.dll`, `WithCrypt.Shell.msix`를 사용하며 이후 설치 프로그램도 이 Wrapper를 호출한다.
 
 1. **클래식 메뉴(레지스트리)**: Wrapper가 HKCU에 동사를 등록·제거한다. 관리자 권한과 unsafe 코드가 필요 없다. 암호화는 `HKCU\Software\Classes\*\shell\WithCrypt.Encrypt`에 `AppliesTo = NOT System.FileExtension:=.esb`로 등록한다. 복호화는 `SystemFileAssociations\.esb\shell\WithCrypt.Decrypt`에 등록하여 사용자가 지정한 `.esb` 기본 프로그램을 바꾸지 않는다. Windows 11에서는 "더 많은 옵션 표시" 안에 나타난다. 레지스트리 접근은 Microsoft의 안전한 `windows-registry` 크레이트를 사용한다.
 2. **Windows 11 새 메뉴(COM)**: `withcrypt-shell` cdylib가 `IExplorerCommand`를 구현한다. sparse package(외부 위치 패키지)의 `desktop4:FileExplorerContextMenus`와 `com:SurrogateServer`로 등록한다. 모든 파일 형식(`*`)에 암호화, `.esb`에 복호화 동사를 걸고 `GetState`에서 확장자로 다시 거른다. 선택 항목이 16개를 넘으면 숨긴다. 각 항목마다 앱 창을 하나씩 연다. `scripts/package-windows-shell.ps1`이 makeappx로 패키지를 만든다. 코드 서명을 마련하기 전까지는 `-Unsigned`로 Microsoft의 [서명 없는 패키지](https://learn.microsoft.com/windows/msix/package/unsigned-package)용 publisher OID를 넣고 서명을 생략하며, Wrapper가 `Add-AppxPackage -ExternalLocation <폴더> -AllowUnsigned`로 설치한다. 이 방식은 Windows 11 전용이고 Microsoft가 테스트 용도로 안내하므로 정식 배포 전에는 서명 빌드로 바꾼다. 매니페스트의 `Application` 항목이 실행 파일 활성화로 취급되므로, 서명 없는 패키지는 관리자 권한(모든 사용자 설치)에서만 설치된다. 일반 권한에서는 0x80073D2B로 실패하며, Wrapper는 이때 클래식 메뉴로 대체 등록해 메뉴가 없는 상태를 남기지 않는다.
@@ -18,8 +18,8 @@
 Agent.md는 자체 코드의 unsafe를 기본 금지한다. COM in-proc 서버는 `DllGetClassObject`/`DllCanUnloadNow` 내보내기, out-pointer 쓰기, Shell API 호출에 FFI가 필요해서 `withcrypt-shell` 크레이트 하나에만 예외를 둔다. 범위는 다음으로 제한한다.
 
 - out-pointer는 null 검사 후에만 쓴다. 각 unsafe 블록에 `SAFETY` 근거를 남기고 `unsafe_op_in_unsafe_fn`을 거부한다.
-- 이 DLL은 암호, 키, 파일 내용을 다루지 않는다. 선택 항목 경로를 읽고 같은 폴더의 `withcrypt-desktop.exe`를 실행하는 일만 한다.
-- `withcrypt-core`, `withcrypt-cli`, `withcrypt-desktop`은 계속 `#![forbid(unsafe_code)]`다.
+- 이 DLL은 암호, 키, 파일 내용을 다루지 않는다. 선택 항목 경로를 읽고 같은 폴더의 `withcrypt-gui.exe`를 실행하는 일만 한다.
+- `withcrypt-core`, `withcrypt-cli`, `withcrypt-gui`는 계속 `#![forbid(unsafe_code)]`다.
 
 ## 한계와 미검증
 

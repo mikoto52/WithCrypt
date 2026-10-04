@@ -14,4 +14,4 @@ KDF와 스트리밍은 작업 스레드 하나에서 실행한다. 진행률은 
 
 공식 문서: [eframe 기능과 접근성](https://docs.rs/eframe/0.36.2/eframe/), [egui 플랫폼/IME](https://github.com/emilk/egui), [rfd 플랫폼/다이얼로그](https://docs.rs/rfd/0.17.2/rfd/).
 
-실제 CLI PTY 시험에서 macOS의 대소문자 비구분 파일시스템에서 `withcrypt`와 `WithCrypt`가 동일 경로가 되는 충돌을 발견했다. GUI 바이너리는 `withcrypt-desktop`으로 분리하고 앱 번들·창·제품명은 WithCrypt로 유지한다. Windows에서도 같은 충돌을 방지한다.
+실제 CLI PTY 시험에서 macOS의 대소문자 비구분 파일시스템에서 `withcrypt`와 `WithCrypt`가 동일 경로가 되는 충돌을 발견했다. GUI 바이너리는 `withcrypt-gui`로 분리하고 앱 번들·창·제품명은 WithCrypt로 유지한다. Windows에서도 같은 충돌을 방지한다.

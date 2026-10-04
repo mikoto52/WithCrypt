@@ -1177,7 +1177,7 @@ fn configure(ctx: &egui::Context) {
     }
 }
 /// Shown when the command line is not understood.
-const USAGE: &str = "사용법: withcrypt-desktop [--encrypt 파일 | --decrypt 파일]\n탐색기 메뉴 등록·해제는 withcrypt-shell-setup을 사용하세요.";
+const USAGE: &str = "사용법: withcrypt-gui [--encrypt 파일 | --decrypt 파일]\n탐색기 메뉴 등록·해제는 withcrypt-setup을 사용하세요.";
 /// How the app was started.
 enum Launch {
     Window,

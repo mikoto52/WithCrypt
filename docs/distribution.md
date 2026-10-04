@@ -12,19 +12,19 @@ Rust 1.99.0 stable, Cargo.lock을 사용한다. `cargo build --release --locked 
 
 ## macOS
 
-Xcode Command Line Tools가 필요하다. CLI는 `target/release/withcrypt`, GUI는 `target/release/withcrypt-desktop`다. `scripts/package-macos.sh`가 CLI와 `.app` 번들을 `dist/macos`에 만든다. Apple Silicon 빌드는 현지에서 검증하며 Intel은 별도 runner로 빌드해야 한다. 배포 시 Developer ID 서명과 notarization을 추가해야 하며 이 프로젝트는 인증서나 비밀번호를 포함하지 않는다.
+Xcode Command Line Tools가 필요하다. CLI는 `target/release/withcrypt`, GUI는 `target/release/withcrypt-gui`다. `scripts/package-macos.sh`가 CLI와 `.app` 번들을 `dist/macos`에 만든다. Apple Silicon 빌드는 현지에서 검증하며 Intel은 별도 runner로 빌드해야 한다. 배포 시 Developer ID 서명과 notarization을 추가해야 하며 이 프로젝트는 인증서나 비밀번호를 포함하지 않는다.
 
 ## Windows
 
-MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo build --release --locked --workspace` 후 `withcrypt.exe`와 `withcrypt-desktop.exe`를 배포한다. 시스템 `whoami.exe`, `icacls.exe`가 필요하다. 출력 파일은 내용을 쓰기 전에 현재 사용자 SID만 접근하도록 ACL을 적용한다. 실제 NTFS no-clobber, ACL, 취소·정리 및 한글 IME 검증은 Windows CI/수동 검증에서 확인한다.
+MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo build --release --locked --workspace` 후 `withcrypt.exe`와 `withcrypt-gui.exe`를 배포한다. 시스템 `whoami.exe`, `icacls.exe`가 필요하다. 출력 파일은 내용을 쓰기 전에 현재 사용자 SID만 접근하도록 ACL을 적용한다. 실제 NTFS no-clobber, ACL, 취소·정리 및 한글 IME 검증은 Windows CI/수동 검증에서 확인한다.
 
-탐색기 메뉴(ADR-004)는 두 가지 구현을 제공하지만 중복 표시를 막기 위해 하나만 활성화한다. Windows 11 기본 등록은 새 메뉴, 이전 Windows와 `--classic-only`는 클래식 메뉴를 사용한다. `withcrypt-desktop.exe`, `withcrypt_shell.dll`, `withcrypt-shell-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
+탐색기 메뉴(ADR-004)는 두 가지 구현을 함께 제공한다. Windows 11 기본 등록은 새 메뉴와 "더 많은 옵션 표시"의 클래식 메뉴를 모두 활성화하고, 이전 Windows와 `--classic-only`는 클래식 메뉴를 사용한다. `withcrypt-gui.exe`, `withcrypt_shell.dll`, `withcrypt-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
 
 ```powershell
 .\scripts\build-windows.ps1                    # 릴리스 빌드 + 아이콘 + 서명 없는 테스트 패키지
-.\target\release\withcrypt-shell-setup.exe register
-.\target\release\withcrypt-shell-setup.exe status
-.\target\release\withcrypt-shell-setup.exe unregister
+.\target\release\withcrypt-setup.exe register
+.\target\release\withcrypt-setup.exe status
+.\target\release\withcrypt-setup.exe unregister
 ```
 
 `cargo build`만 직접 실행하면 탐색기에서 참조하는 `ShellIcon.ico`와 MSIX가 출력 폴더에 복사되지 않는다. 탐색기 통합을 시험할 때는 `build-windows.ps1`을 사용한다. 서명 배포물은 `-Publisher "CN=..." -CertificatePath <pfx>`를 함께 전달한다.

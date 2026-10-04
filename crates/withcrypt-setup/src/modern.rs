@@ -1,5 +1,5 @@
 //! Windows 11 top-level menu: the WithCrypt sparse package (manifest + logos)
-//! whose external location holds withcrypt-desktop.exe and withcrypt_shell.dll.
+//! whose external location holds withcrypt-gui.exe and withcrypt_shell.dll.
 //! Until code signing is set up, the package is built unsigned with Microsoft's
 //! test-only publisher OID and installed with `Add-AppxPackage -AllowUnsigned`.
 use std::{path::Path, process::Command};

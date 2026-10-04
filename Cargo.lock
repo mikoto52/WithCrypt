@@ -4095,7 +4095,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "withcrypt-desktop"
+name = "withcrypt-gui"
 version = "0.1.0"
 dependencies = [
  "eframe",
@@ -4106,18 +4106,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "withcrypt-setup"
+version = "0.1.0"
+dependencies = [
+ "windows-registry",
+]
+
+[[package]]
 name = "withcrypt-shell"
 version = "0.1.0"
 dependencies = [
  "windows",
  "windows-core",
-]
-
-[[package]]
-name = "withcrypt-shell-setup"
-version = "0.1.0"
-dependencies = [
- "windows-registry",
 ]
 
 [[package]]

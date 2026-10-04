@@ -5,11 +5,11 @@ Builds all Windows binaries and prepares Explorer integration for testing.
 .DESCRIPTION
 Runs the release workspace build, copies ShellIcon.ico beside the executables,
 and creates the sparse MSIX package. With no signing arguments it creates an
-unsigned development package. Run withcrypt-shell-setup.exe register afterward.
+unsigned development package. Run withcrypt-setup.exe register afterward.
 
 .EXAMPLE
 .\scripts\build-windows.ps1
-.\target\release\withcrypt-shell-setup.exe register
+.\target\release\withcrypt-setup.exe register
 
 .EXAMPLE
 .\scripts\build-windows.ps1 -Publisher "CN=WithCrypt" -CertificatePath .\withcrypt.pfx
@@ -39,6 +39,11 @@ try {
 }
 
 Copy-Item $shellIcon (Join-Path $release "ShellIcon.ico") -Force
+# Avoid accidentally launching binaries left by versions before the rename.
+foreach ($oldName in "withcrypt-desktop.exe", "withcrypt-shell-setup.exe") {
+    $oldPath = Join-Path $release $oldName
+    if (Test-Path $oldPath) { Remove-Item $oldPath -Force }
+}
 
 $packageArguments = @{
     InstallDir = $release
@@ -60,4 +65,4 @@ if ($Publisher -and $CertificatePath) {
 if ($LASTEXITCODE -ne 0) { throw "Shell package build failed ($LASTEXITCODE)" }
 
 Write-Host "Windows build is ready in $release"
-Write-Host "Register: .\target\release\withcrypt-shell-setup.exe register"
+Write-Host "Register: .\target\release\withcrypt-setup.exe register"

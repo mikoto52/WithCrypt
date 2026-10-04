@@ -14,7 +14,7 @@ Rust 1.99.0 stable을 사용합니다. `rust-toolchain.toml`과 `Cargo.lock`을 
 
 ```sh
 cargo build --release --locked -p withcrypt-cli
-cargo run --release --locked -p withcrypt-desktop
+cargo run --release --locked -p withcrypt-gui
 
 ./target/release/withcrypt encrypt original.bin # original.bin.esb 생성
 ./target/release/withcrypt encrypt original.bin --output aes.esb --algorithm aes-256-gcm
@@ -35,11 +35,11 @@ CLI 암호화의 `--output`은 선택 사항이며 생략하면 원본과 같은
 
 ```powershell
 .\scripts\build-windows.ps1                       # 빌드 + 아이콘 복사 + 테스트용 MSIX 생성
-.\target\release\withcrypt-shell-setup.exe register
-withcrypt-shell-setup.exe register                 # OS에 맞는 메뉴 등록
-withcrypt-shell-setup.exe register --classic-only  # 클래식 메뉴만 (HKCU, 관리자 권한 불필요)
-withcrypt-shell-setup.exe status
-withcrypt-shell-setup.exe unregister
+.\target\release\withcrypt-setup.exe register
+withcrypt-setup.exe register                 # 클래식 + Windows 11 새 메뉴 등록
+withcrypt-setup.exe register --classic-only  # 클래식 메뉴만 (HKCU, 관리자 권한 불필요)
+withcrypt-setup.exe status
+withcrypt-setup.exe unregister
 ```
 
 Windows 11의 새 메뉴(최상위)는 sparse package `WithCrypt.Shell.msix`와 `ShellIcon.ico`가 실행 파일과 같은 폴더에 있어야 합니다. `scripts/build-windows.ps1`은 릴리스 빌드부터 두 파일 준비까지 한 번에 처리합니다. 인자 없이 실행하면 서명 없는 테스트용 패키지를 만들며, 자세한 내용은 `docs/distribution.md`를 참고하세요.

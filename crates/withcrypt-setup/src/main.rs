@@ -1,8 +1,6 @@
 #![forbid(unsafe_code)]
-//! Registers one WithCrypt Explorer menu style appropriate for this Windows
-//! version (ADR-004). Keeping classic and modern registrations active together
-//! can make Explorer show the same command twice.
-//! Expects withcrypt-desktop.exe, withcrypt_shell.dll and WithCrypt.Shell.msix
+//! Registers both classic and Windows 11 WithCrypt Explorer menus (ADR-004).
+//! Expects withcrypt-gui.exe, withcrypt_shell.dll and WithCrypt.Shell.msix
 //! in the same folder as this executable.
 #[cfg(windows)]
 mod classic;
@@ -11,9 +9,9 @@ mod modern;
 
 /// Printed for unknown or missing arguments.
 const USAGE: &str = "\
-사용법: withcrypt-shell-setup <명령>
+사용법: withcrypt-setup <명령>
 
-  register     탐색기 메뉴 등록 (Windows 11은 새 메뉴, 이전 버전은 클래식)
+  register     클래식 + Windows 11 새 메뉴 등록
   register --classic-only
                클래식 메뉴만 등록 ('더 많은 옵션 표시')
   unregister   두 메뉴 모두 해제
@@ -53,7 +51,7 @@ fn run(command: Command) -> bool {
             return false;
         }
     };
-    let desktop = dir.join("withcrypt-desktop.exe");
+    let gui = dir.join("withcrypt-gui.exe");
     let shell_icon = dir.join("ShellIcon.ico");
     let report = |label: &str, result: Result<(), String>| match result {
         Ok(()) => {
@@ -67,8 +65,8 @@ fn run(command: Command) -> bool {
     };
     match command {
         Command::Register { classic_only } => {
-            if !desktop.is_file() {
-                eprintln!("{}이(가) 없습니다.", desktop.display());
+            if !gui.is_file() {
+                eprintln!("{}이(가) 없습니다.", gui.display());
                 return false;
             }
             if !shell_icon.is_file() {
@@ -76,17 +74,22 @@ fn run(command: Command) -> bool {
                 return false;
             }
             if classic_only {
-                // Remove a previous modern registration first, otherwise an
-                // .esb file can retain both decrypt commands.
-                if modern::supported() && !report("Windows 11 새 메뉴 해제", modern::unregister())
-                {
-                    return false;
+                // Best effort: even if an elevated modern package cannot be
+                // removed here, still make the requested classic menu usable.
+                let modern_ok =
+                    !modern::supported() || report("Windows 11 새 메뉴 해제", modern::unregister());
+                let classic_ok = report("클래식 메뉴", classic::register(&gui, &shell_icon));
+                if classic_ok {
+                    println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
                 }
-                return report("클래식 메뉴", classic::register(&desktop, &shell_icon));
+                return modern_ok && classic_ok;
             }
+            // The classic command remains available under "Show more options"
+            // even if the Windows 11 package cannot be installed.
+            let classic_ok = report("클래식 메뉴", classic::register(&gui, &shell_icon));
             if !modern::supported() {
                 println!("[건너뜀] Windows 11 새 메뉴: Windows 11에서만 지원합니다");
-                return report("클래식 메뉴", classic::register(&desktop, &shell_icon));
+                return classic_ok;
             }
             let package = dir.join(modern::PACKAGE_FILE);
             // The package points Explorer at the DLL, so both must be present.
@@ -100,28 +103,13 @@ fn run(command: Command) -> bool {
                     None => modern::register(&package, &dir),
                 },
             );
-            let ok = if modern_ok {
-                // Older releases registered both styles. Remove that stale
-                // classic registration after modern setup succeeds.
-                report("중복 클래식 메뉴 해제", classic::unregister())
-            } else if modern::registered() {
-                // An earlier elevated install is still active. Adding the classic
-                // menu now would show the decrypt command twice for .esb files.
-                println!("[건너뜀] 클래식 메뉴: 관리자 권한으로 설치된 새 메뉴가 이미 있습니다");
-                false
-            } else {
-                // Never leave the user without a menu: fall back to the classic
-                // one, which needs neither a signature nor administrator rights.
-                println!("[대체] 클래식 메뉴로 등록합니다 ('더 많은 옵션 표시' 안에 나타남)");
-                report("클래식 메뉴", classic::register(&desktop, &shell_icon))
-            };
-            if ok && modern_ok {
+            if modern_ok {
                 // Explorer loads packaged menu extensions only when it starts.
                 println!("새 메뉴는 탐색기를 다시 시작하거나 다시 로그인해야 나타납니다.");
-            } else if ok {
+            } else if classic_ok {
                 println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
             }
-            ok
+            classic_ok && modern_ok
         }
         Command::Unregister => {
             let mut ok = report("클래식 메뉴 해제", classic::unregister());

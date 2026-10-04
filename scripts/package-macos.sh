@@ -6,7 +6,7 @@ mkdir -p "$bundle/MacOS" "$bundle/Resources"
 cp LICENSE "$bundle/Resources/LICENSE"
 cp LICENSE dist/macos/LICENSE
 cp resources/AppIcon.icns "$bundle/Resources/WithCrypt.icns"
-cp target/release/withcrypt-desktop "$bundle/MacOS/WithCrypt"
+cp target/release/withcrypt-gui "$bundle/MacOS/WithCrypt"
 cp target/release/withcrypt dist/macos/withcrypt
 cat > "$bundle/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -21,7 +21,7 @@ cat > "$bundle/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key>
 <string>WithCrypt</string>
 <key>CFBundleIdentifier</key>
-<string>local.withcrypt.desktop</string>
+<string>local.withcrypt.gui</string>
 <key>CFBundleVersion</key>
 <string>0.1.0</string>
 <key>CFBundleShortVersionString</key>

@@ -35,9 +35,9 @@ fn main() {
         .join("../../resources/AppIcon2.ico");
     let copied_icon = out.join("AppIcon2.ico");
     fs::copy(&icon, &copied_icon).expect("resources/AppIcon2.ico를 읽을 수 없습니다");
-    let script = out.join("withcrypt-desktop.rc");
+    let script = out.join("withcrypt-gui.rc");
     fs::write(&script, "1 ICON \"AppIcon2.ico\"\n").expect("resource script");
-    let resource = out.join("withcrypt-desktop.res");
+    let resource = out.join("withcrypt-gui.res");
 
     let env_name = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     let status = if env_name == "msvc" {
@@ -59,7 +59,7 @@ fn main() {
     .expect("Windows resource compiler를 실행할 수 없습니다");
     assert!(status.success(), "Windows 아이콘 리소스 컴파일 실패");
     println!(
-        "cargo:rustc-link-arg-bin=withcrypt-desktop={}",
+        "cargo:rustc-link-arg-bin=withcrypt-gui={}",
         resource.display()
     );
 }

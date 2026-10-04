@@ -1,5 +1,5 @@
 [package]
-name = "withcrypt-shell-setup"
+name = "withcrypt-setup"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 description = "Registers and unregisters the WithCrypt Explorer context menus"
 
 [[bin]]
-name = "withcrypt-shell-setup"
+name = "withcrypt-setup"
 path = "src/main.rs"
 
 [target.'cfg(windows)'.dependencies]

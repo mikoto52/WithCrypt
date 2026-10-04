@@ -34,7 +34,7 @@ v1 제외: 폴더 아카이브, 압축, 키 파일, 공개키 공유, 클라우�
 Cargo.toml
 crates/withcrypt-core/        # 포맷, KDF, AEAD, HMAC, 스트리밍 API
 crates/withcrypt-cli/         # CLI, 비밀번호 입력, 진행률, 파일 트랜잭션
-crates/withcrypt-desktop/     # 후속 GUI; 코어와 파일 트랜잭션 재사용
+crates/withcrypt-gui/     # 후속 GUI; 코어와 파일 트랜잭션 재사용
 docs/format-v1.md      # 정확한 바이너리 구조와 검증 순서
 docs/security.md       # 위협 모델, 보장, 한계
 docs/adr/              # 결정과 변경 근거

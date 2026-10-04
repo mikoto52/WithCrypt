@@ -1,5 +1,5 @@
 [package]
-name = "withcrypt-desktop"
+name = "withcrypt-gui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,7 +7,7 @@ publish.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "withcrypt-desktop"
+name = "withcrypt-gui"
 path = "src/main.rs"
 
 [dependencies]

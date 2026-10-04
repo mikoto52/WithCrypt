@@ -3,20 +3,20 @@
 Builds the sparse package for the Windows 11 top-level Explorer menu.
 
 .DESCRIPTION
-The package holds only the manifest and logos. withcrypt-desktop.exe and
+The package holds only the manifest and logos. withcrypt-gui.exe and
 withcrypt_shell.dll stay in -InstallDir (the external location), and the
-finished WithCrypt.Shell.msix is copied there too so withcrypt-shell-setup.exe
+finished WithCrypt.Shell.msix is copied there too so withcrypt-setup.exe
 can register it.
 
 -Unsigned (Windows 11 only) uses Microsoft's test publisher OID and skips
-signing; withcrypt-shell-setup installs it with Add-AppxPackage -AllowUnsigned.
+signing; withcrypt-setup installs it with Add-AppxPackage -AllowUnsigned.
 Use it until code signing is set up, not for wide distribution. Signed builds
 need -Publisher equal to the certificate subject and a trusted certificate.
 
 .EXAMPLE
-cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup
+cargo build --release --locked -p withcrypt-gui -p withcrypt-shell -p withcrypt-setup
 .\scripts\package-windows-shell.ps1 -Unsigned
-.\target\release\withcrypt-shell-setup.exe register
+.\target\release\withcrypt-setup.exe register
 
 .EXAMPLE
 .\scripts\package-windows-shell.ps1 -Publisher "CN=WithCrypt" -CertificatePath .\withcrypt.pfx
@@ -42,9 +42,9 @@ if ($Unsigned) {
 }
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $InstallDir = (Resolve-Path $InstallDir).Path
-foreach ($file in "withcrypt-desktop.exe", "withcrypt_shell.dll") {
+foreach ($file in "withcrypt-gui.exe", "withcrypt_shell.dll") {
     if (-not (Test-Path (Join-Path $InstallDir $file))) {
-        throw "$file not found in $InstallDir. Run: cargo build --release --locked -p withcrypt-desktop -p withcrypt-shell -p withcrypt-shell-setup"
+        throw "$file not found in $InstallDir. Run: cargo build --release --locked -p withcrypt-gui -p withcrypt-shell -p withcrypt-setup"
     }
 }
 $shellIcon = Join-Path $root "resources\ShellIcon.ico"
@@ -97,4 +97,4 @@ if (-not $Unsigned) {
 }
 Copy-Item $msix (Join-Path $InstallDir "WithCrypt.Shell.msix") -Force
 Write-Host "Package: $msix ($(if ($Unsigned) { 'unsigned' } else { 'signed' }))"
-Write-Host "Copied to $InstallDir. Register: withcrypt-shell-setup.exe register"
+Write-Host "Copied to $InstallDir. Register: withcrypt-setup.exe register"

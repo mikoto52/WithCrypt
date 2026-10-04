@@ -47,9 +47,9 @@ fn exe_string(exe: &Path) -> Result<&str, String> {
     Ok(exe)
 }
 
-/// Creates both verbs under HKCU, pointing at `desktop` (withcrypt-desktop.exe).
-pub fn register(desktop: &Path, icon: &Path) -> Result<(), String> {
-    let exe = exe_string(desktop)?;
+/// Creates both verbs under HKCU, pointing at `gui` (withcrypt-gui.exe).
+pub fn register(gui: &Path, icon: &Path) -> Result<(), String> {
+    let exe = exe_string(gui)?;
     let icon = exe_string(icon)?;
     let result = (|| -> windows_registry::Result<()> {
         for entry in &ENTRIES {
@@ -94,11 +94,8 @@ mod tests {
     #[test]
     fn command_lines_quote_paths() {
         assert_eq!(
-            command_line(
-                r"C:\Program Files\WithCrypt\withcrypt-desktop.exe",
-                "--encrypt"
-            ),
-            r#""C:\Program Files\WithCrypt\withcrypt-desktop.exe" --encrypt "%1""#
+            command_line(r"C:\Program Files\WithCrypt\withcrypt-gui.exe", "--encrypt"),
+            r#""C:\Program Files\WithCrypt\withcrypt-gui.exe" --encrypt "%1""#
         );
         assert!(exe_string(Path::new(r#"C:\bad"name.exe"#)).is_err());
         assert!(ENTRIES[0].applies_to.unwrap().contains(".esb"));
