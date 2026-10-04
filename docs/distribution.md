@@ -18,7 +18,7 @@ Xcode Command Line Tools가 필요하다. CLI는 `target/release/withcrypt`, GUI
 
 MSVC Rust 툴체인과 Visual Studio C++ Build Tools를 설치한다. `cargo build --release --locked --workspace` 후 `withcrypt.exe`와 `withcrypt-gui.exe`를 배포한다. 시스템 `whoami.exe`, `icacls.exe`가 필요하다. 출력 파일은 내용을 쓰기 전에 현재 사용자 SID만 접근하도록 ACL을 적용한다. 실제 NTFS no-clobber, ACL, 취소·정리 및 한글 IME 검증은 Windows CI/수동 검증에서 확인한다.
 
-탐색기 메뉴(ADR-004)는 두 가지 구현을 제공한다. Windows 11 패키지 메뉴는 새 메뉴와 클래식 화면에 모두 노출되므로 기본 등록은 레지스트리 중복 항목을 제거한다. 새 메뉴 설치 실패, 이전 Windows 및 `--classic-only`에서는 레지스트리 클래식 메뉴를 사용한다. `withcrypt-gui.exe`, `withcrypt_shell.dll`, `withcrypt-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
+탐색기 메뉴(ADR-004)는 두 가지 구현을 제공한다. Windows 11 기본 등록은 새 메뉴용 패키지 동사와 "더 많은 옵션 표시"용 레지스트리 클래식 메뉴를 함께 유지한다. 새 메뉴 설치 실패, 이전 Windows 및 `--classic-only`에서도 레지스트리 메뉴를 사용할 수 있다. `withcrypt-gui.exe`, `withcrypt_shell.dll`, `withcrypt-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
 
 ```powershell
 .\scripts\build-windows.ps1                    # 릴리스 빌드 + 아이콘 + 서명 없는 테스트 패키지
