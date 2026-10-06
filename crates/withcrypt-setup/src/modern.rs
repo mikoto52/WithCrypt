@@ -22,9 +22,12 @@ pub fn windows_build() -> Option<u32> {
         .ok()
 }
 
-/// True on Windows 11, where the top-level menu exists.
+/// True on Windows 11, where the top-level menu exists, for 64-bit builds.
+/// A 32-bit build ships a 32-bit withcrypt_shell.dll, which a 64-bit Explorer
+/// (every Windows 11, x64 or ARM64) cannot load, so it uses the classic menu.
 pub fn supported() -> bool {
-    windows_build().is_some_and(|build| build >= FIRST_SUPPORTED_BUILD)
+    !cfg!(target_arch = "x86")
+        && windows_build().is_some_and(|build| build >= FIRST_SUPPORTED_BUILD)
 }
 
 /// Single-quoted PowerShell literal: only `'` needs escaping (doubled).

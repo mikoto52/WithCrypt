@@ -1,6 +1,6 @@
 # 의존성 라이선스 확인
 
-2026-10-03 기준 `cargo metadata --locked --format-version 1`로 워크스페이스 자체 패키지를 제외한 외부 패키지 423개의 선언된 라이선스를 확인했다. 특정 OS로 필터링하지 않아 플랫폼별·개발용 의존성도 포함한다. 라이선스 메타데이터 누락은 없었다.
+2026-10-06 기준 `cargo metadata --locked --format-version 1`로 워크스페이스 자체 패키지를 제외한 외부 패키지 429개의 선언된 라이선스를 확인했다. 특정 OS로 필터링하지 않아 플랫폼별·개발용 의존성도 포함한다. 라이선스 메타데이터 누락은 없었다.
 
 GPL/LGPL만을 필수로 요구하는 라이선스 표현식은 없었다. 다음 OR 선택지는 명시적으로 비 GPL 항목을 선택한다.
 
@@ -29,6 +29,7 @@ WithCrypt 자체 코드에는 MIT를 적용한다. 이것이 의존성을 MIT로
 | aes | 0.8.4 | MIT OR Apache-2.0 |
 | aes-gcm | 0.10.3 | Apache-2.0 OR MIT |
 | ahash | 0.8.12 | MIT OR Apache-2.0 |
+| allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
 | android-activity | 0.6.1 | MIT OR Apache-2.0 |
 | android-properties | 0.2.2 | MIT |
 | anstream | 1.0.0 | MIT OR Apache-2.0 |
@@ -162,6 +163,7 @@ WithCrypt 자체 코드에는 MIT를 적용한다. 이것이 의존성을 MIT로
 | glutin_egl_sys | 0.7.1 | Apache-2.0 |
 | glutin_glx_sys | 0.6.1 | Apache-2.0 |
 | glutin_wgl_sys | 0.6.1 | Apache-2.0 |
+| gpu-allocator | 0.28.0 | MIT OR Apache-2.0 |
 | guillotiere | 0.7.0 | MIT/Apache-2.0 |
 | half | 2.7.1 | MIT OR Apache-2.0 |
 | harfrust | 0.12.0 | MIT |
@@ -240,6 +242,7 @@ WithCrypt 자체 코드에는 MIT를 적용한다. 이것이 의존성을 MIT로
 | once_cell_polyfill | 1.70.2 | MIT OR Apache-2.0 |
 | opaque-debug | 0.3.1 | MIT OR Apache-2.0 |
 | orbclient | 0.3.55 | MIT |
+| ordered-float | 5.5.0 | MIT |
 | ordered-stream | 0.2.0 | MIT OR Apache-2.0 |
 | parking | 2.2.1 | Apache-2.0 OR MIT |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 |
@@ -260,11 +263,13 @@ WithCrypt 자체 코드에는 MIT를 적용한다. 이것이 의존성을 MIT로
 | png | 0.18.1 | MIT OR Apache-2.0 |
 | polling | 3.11.0 | Apache-2.0 OR MIT |
 | pollster | 0.4.0 | Apache-2.0/MIT |
+| pollster | 1.0.1 | Apache-2.0/MIT |
 | poly1305 | 0.8.0 | Apache-2.0 OR MIT |
 | polycool | 0.4.0 | MIT OR Apache-2.0 |
 | polyval | 0.6.2 | Apache-2.0 OR MIT |
 | portable-atomic | 1.15.0 | Apache-2.0 OR MIT |
 | portable-atomic-util | 0.2.8 | Apache-2.0 OR MIT |
+| presser | 0.3.1 | MIT OR Apache-2.0 |
 | proc-macro-crate | 3.5.0 | MIT OR Apache-2.0 |
 | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 |
 | profiling | 1.0.18 | MIT OR Apache-2.0 |
@@ -275,6 +280,7 @@ WithCrypt 자체 코드에는 MIT를 적용한다. 이것이 의존성을 MIT로
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | rand_core | 0.6.4 | MIT OR Apache-2.0 |
+| range-alloc | 0.1.5 | MIT OR Apache-2.0 |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
 | read-fonts | 0.41.0 | MIT OR Apache-2.0 |
 | redox_syscall | 0.4.1 | MIT |

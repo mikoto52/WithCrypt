@@ -89,7 +89,9 @@ fn run(command: Command) -> bool {
             // be included in the classic surface.
             let classic_ok = report("클래식 메뉴", classic::register(&gui, &shell_icon));
             if !modern::supported() {
-                println!("[건너뜀] Windows 11 새 메뉴: Windows 11에서만 지원합니다");
+                println!(
+                    "[건너뜀] Windows 11 새 메뉴: Windows 11의 64비트(x64/ARM64) 빌드에서만 지원합니다"
+                );
                 return classic_ok;
             }
             let package = dir.join(modern::PACKAGE_FILE);
@@ -126,7 +128,7 @@ fn run(command: Command) -> bool {
                 None => println!("클래식 메뉴: 등록 안 됨"),
             }
             if !modern::supported() {
-                println!("Windows 11 새 메뉴: 지원하지 않는 Windows");
+                println!("Windows 11 새 메뉴: 이 Windows 또는 32비트 빌드에서는 지원하지 않음");
                 return true;
             }
             match modern::installed() {

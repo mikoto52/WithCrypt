@@ -92,6 +92,13 @@ END
     let resource = out.join(format!("{binary}.res"));
 
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_env == "msvc" {
+        // Embed an asInvoker manifest in every linked binary of the package,
+        // test harnesses included. Without it Windows' installer detection
+        // demands elevation for 32-bit executables named like "*setup*".
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTUAC:level='asInvoker' uiAccess='false'");
+    }
     let status = if target_env == "msvc" {
         Command::new(msvc_resource_compiler())
             .current_dir(&out)

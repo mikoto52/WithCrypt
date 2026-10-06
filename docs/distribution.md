@@ -8,7 +8,7 @@ WithCrypt 자체 코드는 MIT 라이선스다. 배포물에 LICENSE의 저작�
 
 ## 공통
 
-Rust 1.99.0 stable, Cargo.lock을 사용한다. `cargo build --release --locked --workspace`로 CLI와 GUI를 함께 만든다. x86_64/aarch64를 지원 대상으로 하며 대상 CPU에서 두 스위트를 반드시 포함한다. 암호화가 가능한 하드웨어를 자동으로 다른 알고리즘으로 바꾸지 않는다.
+Rust 1.99.0 stable, Cargo.lock을 사용한다. `cargo build --release --locked --workspace`로 CLI와 GUI를 함께 만든다. x86(32비트)/x86_64/aarch64를 지원 대상으로 하며 대상 CPU에서 두 스위트를 반드시 포함한다. 암호화가 가능한 하드웨어를 자동으로 다른 알고리즘으로 바꾸지 않는다.
 
 ## macOS
 
@@ -23,11 +23,13 @@ Windows 실행 파일의 VERSIONINFO에는 Cargo 패키지 버전과 제품명�
 탐색기 메뉴(ADR-004)는 두 가지 구현을 제공한다. Windows 11 기본 등록은 새 메뉴용 패키지 동사와 "더 많은 옵션 표시"용 레지스트리 클래식 메뉴를 함께 유지한다. 새 메뉴 설치 실패, 이전 Windows 및 `--classic-only`에서도 레지스트리 메뉴를 사용할 수 있다. `withcrypt-gui.exe`, `withcrypt_shell.dll`, `withcrypt-setup.exe`, `WithCrypt.Shell.msix`를 같은 폴더에 둔다.
 
 ```powershell
-.\scripts\build-windows.ps1                    # 릴리스 빌드 + 아이콘 + 서명 없는 테스트 패키지
-.\target\release\withcrypt-setup.exe register
-.\target\release\withcrypt-setup.exe status
-.\target\release\withcrypt-setup.exe unregister
+.\scripts\build-windows.ps1 -Architecture x64  # 릴리스 빌드 + 아이콘 + 서명 없는 테스트 패키지
+.\target\x86_64-pc-windows-msvc\release\withcrypt-setup.exe register
+.\target\x86_64-pc-windows-msvc\release\withcrypt-setup.exe status
+.\target\x86_64-pc-windows-msvc\release\withcrypt-setup.exe unregister
 ```
+
+지원 아키텍처는 x64, x86(32비트), ARM64이며 `-Architecture x64,x86,arm64`로 한 번에 빌드할 수 있다. 결과물은 `target\<Rust 타깃>\release`에 생긴다. x86 빌드는 32비트 셸 DLL을 64비트 탐색기가 불러올 수 없으므로 Windows 11 새 메뉴 패키지 없이 클래식 메뉴만 쓴다. ARM64 빌드는 ARM64 패키지를 만들고, GUI는 OpenGL 대신 Direct3D 12(wgpu)로 그린다. 준비물과 절차는 [Windows 빌드 매뉴얼](build-windows.md)에 정리했다.
 
 `cargo build`만 직접 실행하면 탐색기에서 참조하는 `ShellIcon.ico`와 MSIX가 출력 폴더에 복사되지 않는다. 탐색기 통합을 시험할 때는 `build-windows.ps1`을 사용한다. 서명 배포물은 `-Publisher "CN=..." -CertificatePath <pfx>`를 함께 전달한다.
 

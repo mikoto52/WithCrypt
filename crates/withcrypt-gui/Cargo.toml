@@ -16,5 +16,11 @@ zeroize.workspace = true
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "accesskit", "x11", "wayland"] }
 rfd = "0.17.2"
 
+# Windows on ARM: render with Direct3D 12 through wgpu (see `renderer()` in
+# main.rs). Only the DX12 backend is enabled to keep the dependency small.
+[target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu_no_default_features"] }
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "dx12", "wgsl"] }
+
 [dev-dependencies]
 tempfile = "3"

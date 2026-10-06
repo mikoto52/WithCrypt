@@ -28,3 +28,9 @@ Agent.md는 자체 코드의 unsafe를 기본 금지한다. COM in-proc 서버�
 - 여러 파일을 선택하면 파일마다 비밀번호 창이 따로 뜬다. 일괄 처리는 v1 범위 밖이다.
 
 공식 문서: [IExplorerCommand](https://learn.microsoft.com/windows/win32/api/shobjidl_core/nn-shobjidl_core-iexplorercommand), [외부 위치 패키지로 정체성 부여](https://learn.microsoft.com/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps), [desktop4:FileExplorerContextMenus](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-desktop4-fileexplorercontextmenus), [AppliesTo](https://learn.microsoft.com/windows/win32/shell/context-menu-handlers).
+
+## 아키텍처 (2026-10-06 추가)
+
+탐색기는 자기와 같은 아키텍처의 셸 DLL만 불러온다. Windows 11은 x64와 ARM64뿐이므로 새 메뉴 패키지는 x64·ARM64용만 만든다(매니페스트의 `ProcessorArchitecture`는 패키징 스크립트가 채운다). 32비트(x86) 빌드의 `withcrypt-setup`은 Windows 버전과 관계없이 클래식 메뉴만 등록한다. 클래식 메뉴는 DLL 없이 실행 파일 경로만 등록하므로 x86 빌드를 64비트 Windows에 설치해도 동작한다.
+
+서명 없는 패키지(`-Unsigned`)는 설치는 되지만 모든 파일(`*`)용 메뉴 항목을 탐색기가 무시하는 것을 확인했다(진단 DLL 로그에서 COM 객체 요청 자체가 없었다). 같은 구조의 서명된 패키지들은 동작하므로 새 메뉴를 시험할 때는 신뢰된 자체 서명 인증서로라도 서명한 패키지를 쓴다. 절차는 `docs/build-windows.md`에 있다.

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Sparse package (external location) that registers one dynamic Windows 11
-     Explorer command. __PUBLISHER__ and __VERSION__ are filled by
+     Explorer command. __PUBLISHER__, __VERSION__ and __ARCH__ are filled by
      scripts/package-windows-shell.ps1. The CLSID must match withcrypt-shell. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -11,7 +11,7 @@
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap10 desktop4 desktop5 com rescap">
-  <Identity Name="WithCrypt.ShellExtension" Publisher="__PUBLISHER__" Version="__VERSION__" ProcessorArchitecture="x64" />
+  <Identity Name="WithCrypt.ShellExtension" Publisher="__PUBLISHER__" Version="__VERSION__" ProcessorArchitecture="__ARCH__" />
   <Properties>
     <DisplayName>WithCrypt</DisplayName>
     <PublisherDisplayName>WithCrypt</PublisherDisplayName>

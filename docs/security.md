@@ -10,7 +10,7 @@ XChaCha는 16바이트 랜덤 prefix와 연속 64비트 인덱스로 24바이트
 
 AES-GCM의 평문 한 레코드는 최대 2^22바이트(2^18개 16바이트 블록)이며 128비트 태그를 사용한다. [RustCrypto 0.10.3의 P_MAX](https://docs.rs/aes-gcm/0.10.3/aes_gcm/constant.P_MAX.html)보다 작다. 단일 메시지 제한과 한 키의 누적 사용량은 다른 제한이다. 이 구현은 한 파생 AES 키에 암호화 한 번만 수행하며 파일 전체에 같은 AES 키를 쓰지 않는다. 그러나 HKDF 출력 충돌의 확률, 총 레코드 수, 전체 위조 시도에 따른 다중 키 인증 한계가 사라지는 것은 아니다. 이 정책을 무제한 크기의 안전성 증명이라고 해석하지 않는다. 공개된 단일 키 GCM 사용량 권고를 다중 키 전체에 그대로 적용하거나 반대로 무시하지 않는다. [libsodium AES-GCM 설명](https://doc.libsodium.org/secret-key_cryptography/aead/aes-256-gcm)과 [RustCrypto 보안 주의사항](https://docs.rs/aes-gcm/0.10.3/aes_gcm/#security-notes)을 참조한다.
 
-배포 지원 CPU는 x86_64/aarch64이다. 해당 AES 라이브러리는 하드웨어 가속 및 상수 시간 곱셈 CPU의 소프트웨어 구현을 제공한다. 그 외 CPU에서 AES 작업은 명시적으로 거부하며 조용히 다른 스위트로 바꾸지 않는다. 32비트 가변 시간 곱셈 CPU는 배포 지원 대상이 아니다.
+배포 지원 CPU는 x86(32비트)/x86_64/aarch64이다. 세 아키텍처 모두 곱셈이 상수 시간이다. x86·x86_64에서는 AES-NI·CLMUL을 실행 중 감지해 사용하고, aarch64는 상수 시간 소프트웨어 구현을 사용한다(ARMv8 명령은 `aes_armv8`/`polyval_armv8` 빌드 설정이 필요하며 켜지 않았다). 해당 AES 라이브러리는 하드웨어 가속 및 상수 시간 곱셈 CPU의 소프트웨어 구현을 제공한다. 그 외 CPU에서 AES 작업은 명시적으로 거부하며 조용히 다른 스위트로 바꾸지 않는다. 32비트 가변 시간 곱셈 CPU는 배포 지원 대상이 아니다.
 
 ## 파서와 자원
 

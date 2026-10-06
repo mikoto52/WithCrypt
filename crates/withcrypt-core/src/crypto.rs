@@ -113,8 +113,15 @@ impl Keys {
                 }
             }
             Suite::Aes256Gcm => {
-                // AES-GCM is enabled only on the supported CPU architectures (x86_64, aarch64).
-                if !cfg!(any(target_arch = "x86_64", target_arch = "aarch64")) {
+                // AES-GCM is enabled only on the supported CPU architectures (x86, x86_64,
+                // aarch64): all have constant-time multiplication. The AES and GHASH
+                // crates detect AES-NI/CLMUL on x86 and x86_64 at run time; aarch64
+                // uses their constant-time software implementation.
+                if !cfg!(any(
+                    target_arch = "x86",
+                    target_arch = "x86_64",
+                    target_arch = "aarch64"
+                )) {
                     return Err(Error::Format("이 CPU의 AES 구현은 지원하지 않습니다"));
                 }
                 // 12-byte nonce = first 4 prefix bytes || LE64(index), with a per-record key.

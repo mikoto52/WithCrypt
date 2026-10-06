@@ -34,15 +34,15 @@ CLI 암호화의 `--output`은 선택 사항이며 생략하면 원본과 같은
 모든 파일(`.esb` 제외)에 "WithCrypt로 암호화", `.esb` 파일에 "WithCrypt로 복호화" 메뉴를 추가할 수 있습니다. 메뉴로 실행하면 비밀번호만 묻는 작은 창이 뜨고, 저장 위치를 묻지 않고 원본과 같은 폴더에 결과를 만듭니다(암호화: `<원본파일명>.esb`, 복호화: 저장된 원본 파일명). 같은 이름의 파일이 이미 있으면 덮어쓰지 않고 오류로 멈춥니다.
 
 ```powershell
-.\scripts\build-windows.ps1                       # 빌드 + 아이콘 복사 + 테스트용 MSIX 생성
-.\target\release\withcrypt-setup.exe register
+.\scripts\build-windows.ps1 -Architecture x64    # 빌드 + 아이콘 복사 + 테스트용 MSIX 생성 (x64, x86, arm64)
+.\target\x86_64-pc-windows-msvc\release\withcrypt-setup.exe register
 withcrypt-setup.exe register                 # Windows 11 새 메뉴 + 클래식 메뉴 등록
 withcrypt-setup.exe register --classic-only  # 클래식 메뉴만 (HKCU, 관리자 권한 불필요)
 withcrypt-setup.exe status
 withcrypt-setup.exe unregister
 ```
 
-Windows 11의 새 메뉴(최상위)는 sparse package `WithCrypt.Shell.msix`와 `ShellIcon.ico`가 실행 파일과 같은 폴더에 있어야 합니다. `scripts/build-windows.ps1`은 릴리스 빌드부터 두 파일 준비까지 한 번에 처리합니다. 인자 없이 실행하면 서명 없는 테스트용 패키지를 만들며, 자세한 내용은 `docs/distribution.md`를 참고하세요.
+Windows 11의 새 메뉴(최상위)는 sparse package `WithCrypt.Shell.msix`와 `ShellIcon.ico`가 실행 파일과 같은 폴더에 있어야 합니다. `scripts/build-windows.ps1`은 릴리스 빌드부터 두 파일 준비까지 한 번에 처리합니다. 서명 인자 없이 실행하면 서명 없는 테스트용 패키지를 만듭니다. x64·x86(32비트)·ARM64 빌드 방법, 시험 서명, 설치 프로그램 만들기는 [Windows 빌드 매뉴얼](docs/build-windows.md)을 참고하세요.
 
 복호화 결과는 진행 중에도 최종 파일 이름으로 보입니다. "완료"가 표시되기 전의 파일은 아직 전체 검증 전이므로 사용하지 마세요.
 

@@ -39,6 +39,41 @@ jobs:
             target/release/withcrypt-gui.exe
             target/release/withcrypt_shell.dll
             target/release/withcrypt-setup.exe
+  # 32-bit x86 and ARM64 Windows builds (x64 is covered by the test job).
+  # x86 runs natively on x64 runners; ARM64 builds and tests on an ARM runner.
+  windows-arch:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            target: i686-pc-windows-msvc
+            runner: windows-latest
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo clippy --workspace --all-targets --locked --target ${{ matrix.target }} -- -D warnings
+      - run: cargo test --workspace --locked --target ${{ matrix.target }}
+      - run: cargo build --release --workspace --locked --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WithCrypt-windows-${{ matrix.arch }}
+          path: |
+            LICENSE
+            target/${{ matrix.target }}/release/withcrypt.exe
+            target/${{ matrix.target }}/release/withcrypt-gui.exe
+            target/${{ matrix.target }}/release/withcrypt_shell.dll
+            target/${{ matrix.target }}/release/withcrypt-setup.exe
   audit:
     runs-on: ubuntu-latest
     steps:

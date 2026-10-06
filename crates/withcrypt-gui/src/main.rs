@@ -1219,6 +1219,7 @@ fn main() -> eframe::Result {
             .with_resizable(false)
             .with_inner_size(size)
             .with_maximize_button(false),
+        renderer: renderer(),
         ..Default::default()
     };
     eframe::run_native(
@@ -1229,6 +1230,15 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// Windows on ARM does not guarantee an OpenGL driver, so ARM64 builds draw
+/// through Direct3D 12 (wgpu). Every other target keeps OpenGL (glow).
+fn renderer() -> eframe::Renderer {
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    return eframe::Renderer::Wgpu;
+    #[cfg(not(all(windows, target_arch = "aarch64")))]
+    eframe::Renderer::Glow
 }
 
 #[cfg(test)]
