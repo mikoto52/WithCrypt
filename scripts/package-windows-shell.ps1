@@ -38,7 +38,7 @@ param(
     [SecureString]$CertificatePassword,
     [string]$InstallDir,
     [string]$OutDir,
-    [string]$Version = "0.2.0.0"
+    [string]$Version = "0.2.1.0"
 )
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

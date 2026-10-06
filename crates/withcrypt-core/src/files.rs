@@ -49,9 +49,13 @@ fn check_unchanged(file: &File, input: &Path, before: &Metadata) -> Result<()> {
 /// Inherited permissions are removed and only the process SID gets access.
 #[cfg(windows)]
 fn restrict_file(path: &Path) -> Result<()> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
     // Query the process identity, never an environment-supplied account name.
     let identity = Command::new("whoami.exe")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["/user", "/fo", "csv", "/nh"])
         .output()?;
     if !identity.status.success() {
@@ -75,6 +79,7 @@ fn restrict_file(path: &Path) -> Result<()> {
     }
     let grant = format!("*{sid}:F");
     let result = Command::new("icacls.exe")
+        .creation_flags(CREATE_NO_WINDOW)
         .arg(path)
         .args(["/inheritance:r", "/grant:r", &grant])
         .output()?;
