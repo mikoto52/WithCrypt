@@ -1246,7 +1246,7 @@ fn run() -> eframe::Result {
         renderer: renderer(),
         ..Default::default()
     };
-    #[cfg(windows)]
+    #[cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
     let options = eframe::NativeOptions {
         wgpu_options: windows_wgpu_configuration(),
         ..options
@@ -1261,17 +1261,18 @@ fn run() -> eframe::Result {
     )
 }
 
-/// Windows draws through Direct3D 12 so VMs do not require an OpenGL driver.
+/// 64-bit Windows uses Direct3D 12; i686 keeps OpenGL because its WARP path
+/// fails while creating egui's render pipeline.
 fn renderer() -> eframe::Renderer {
-    #[cfg(windows)]
+    #[cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
     return eframe::Renderer::Wgpu;
-    #[cfg(not(windows))]
+    #[cfg(not(all(windows, any(target_arch = "x86_64", target_arch = "aarch64"))))]
     eframe::Renderer::Glow
 }
 
 /// Prefers a hardware DX12 adapter and falls back to Microsoft's WARP
 /// software renderer when a VM has no usable virtual GPU driver.
-#[cfg(windows)]
+#[cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
 fn windows_wgpu_configuration() -> eframe::egui_wgpu::WgpuConfiguration {
     use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup};
     use eframe::wgpu::{Backends, DeviceType};

@@ -16,10 +16,11 @@ zeroize.workspace = true
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "accesskit", "x11", "wayland"] }
 rfd = "0.17.2"
 
-# Windows renders with Direct3D 12 through wgpu (see `renderer()` in main.rs).
-# This also allows WARP software rendering in VMs without a capable OpenGL
-# driver. Only the DX12 backend is enabled to keep the dependency small.
-[target.'cfg(windows)'.dependencies]
+# 64-bit Windows renders with Direct3D 12 through wgpu (see `renderer()` in
+# main.rs). This also allows WARP software rendering in VMs without a capable
+# OpenGL driver. wgpu's DX12 WARP path cannot create egui's pipeline in a
+# 32-bit process, so i686 keeps the OpenGL renderer.
+[target.'cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu_no_default_features"] }
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "dx12", "wgsl"] }
 
