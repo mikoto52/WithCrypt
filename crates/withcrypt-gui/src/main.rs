@@ -1196,8 +1196,18 @@ fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
         _ => None,
     }
 }
+fn main() {
+    if let Err(error) = run() {
+        rfd::MessageDialog::new()
+            .set_title("WithCrypt 시작 오류")
+            .set_description(format!("프로그램을 시작할 수 없습니다.\n\n{error}"))
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+    }
+}
+
 /// Picks the window from the command line and runs the egui event loop.
-fn main() -> eframe::Result {
+fn run() -> eframe::Result {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let (app, size) = match parse_launch(&args) {
         Some(Launch::Window) => (Desktop::default(), [600.0, 548.0]),
@@ -1222,6 +1232,11 @@ fn main() -> eframe::Result {
         renderer: renderer(),
         ..Default::default()
     };
+    #[cfg(windows)]
+    let options = eframe::NativeOptions {
+        wgpu_options: windows_wgpu_configuration(),
+        ..options
+    };
     eframe::run_native(
         "WithCrypt",
         options,
@@ -1232,13 +1247,39 @@ fn main() -> eframe::Result {
     )
 }
 
-/// Windows on ARM does not guarantee an OpenGL driver, so ARM64 builds draw
-/// through Direct3D 12 (wgpu). Every other target keeps OpenGL (glow).
+/// Windows draws through Direct3D 12 so VMs do not require an OpenGL driver.
 fn renderer() -> eframe::Renderer {
-    #[cfg(all(windows, target_arch = "aarch64"))]
+    #[cfg(windows)]
     return eframe::Renderer::Wgpu;
-    #[cfg(not(all(windows, target_arch = "aarch64")))]
+    #[cfg(not(windows))]
     eframe::Renderer::Glow
+}
+
+/// Prefers a hardware DX12 adapter and falls back to Microsoft's WARP
+/// software renderer when a VM has no usable virtual GPU driver.
+#[cfg(windows)]
+fn windows_wgpu_configuration() -> eframe::egui_wgpu::WgpuConfiguration {
+    use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup};
+    use eframe::wgpu::{Backends, DeviceType};
+    use std::sync::Arc;
+
+    let mut configuration = WgpuConfiguration::default();
+    let WgpuSetup::CreateNew(setup) = &mut configuration.wgpu_setup else {
+        unreachable!("the default wgpu setup creates a new adapter");
+    };
+    setup.instance_descriptor.backends = Backends::DX12;
+    setup.native_adapter_selector = Some(Arc::new(|adapters, surface| {
+        let compatible = |adapter: &&eframe::wgpu::Adapter| {
+            surface.is_none_or(|surface| adapter.is_surface_supported(surface))
+        };
+        adapters
+            .iter()
+            .filter(compatible)
+            .min_by_key(|adapter| adapter.get_info().device_type == DeviceType::Cpu)
+            .cloned()
+            .ok_or_else(|| "사용 가능한 Direct3D 12 또는 WARP 어댑터가 없습니다".to_owned())
+    }));
+    configuration
 }
 
 #[cfg(test)]

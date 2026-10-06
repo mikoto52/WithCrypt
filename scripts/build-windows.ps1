@@ -28,7 +28,7 @@ param(
     [string]$CertificatePath,
     [string]$CertificateThumbprint,
     [SecureString]$CertificatePassword,
-    [string]$Version = "0.1.0.0"
+    [string]$Version = "0.2.0.0"
 )
 
 $ErrorActionPreference = "Stop"

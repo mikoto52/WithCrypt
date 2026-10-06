@@ -23,9 +23,9 @@ cat > "$bundle/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key>
 <string>local.withcrypt.gui</string>
 <key>CFBundleVersion</key>
-<string>0.1.0</string>
+<string>0.2.0</string>
 <key>CFBundleShortVersionString</key>
-<string>0.1.0</string>
+<string>0.2.0</string>
 <key>CFBundlePackageType</key>
 <string>APPL</string>
 <key>NSHighResolutionCapable</key><true/>
