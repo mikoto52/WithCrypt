@@ -9,13 +9,13 @@ mod modern;
 
 /// Printed for unknown or missing arguments.
 const USAGE: &str = "\
-사용법: withcrypt-setup <명령>
+Usage: withcrypt-setup <command>
 
-  register     Windows 11 새 메뉴 + 클래식 메뉴 등록
+  register     Register the Windows 11 and classic menus
   register --classic-only
-               클래식 메뉴만 등록 ('더 많은 옵션 표시')
-  unregister   두 메뉴 모두 해제
-  status       등록 상태 표시";
+               Register only the classic menu ('Show more options')
+  unregister   Unregister both menus
+  status       Show registration status";
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -47,7 +47,7 @@ fn run(command: Command) -> bool {
     let dir = match std::env::current_exe() {
         Ok(exe) => exe.parent().map(PathBuf::from).unwrap_or_default(),
         Err(e) => {
-            eprintln!("실행 위치를 알 수 없습니다: {e}");
+            eprintln!("Could not determine the executable location: {e}");
             return false;
         }
     };
@@ -55,42 +55,42 @@ fn run(command: Command) -> bool {
     let shell_icon = dir.join("ShellIcon.ico");
     let report = |label: &str, result: Result<(), String>| match result {
         Ok(()) => {
-            println!("[완료] {label}");
+            println!("[OK] {label}");
             true
         }
         Err(e) => {
-            eprintln!("[실패] {label}: {e}");
+            eprintln!("[FAILED] {label}: {e}");
             false
         }
     };
     match command {
         Command::Register { classic_only } => {
             if !gui.is_file() {
-                eprintln!("{}이(가) 없습니다.", gui.display());
+                eprintln!("{} does not exist.", gui.display());
                 return false;
             }
             if !shell_icon.is_file() {
-                eprintln!("{}이(가) 없습니다.", shell_icon.display());
+                eprintln!("{} does not exist.", shell_icon.display());
                 return false;
             }
             if classic_only {
                 // Best effort: even if an elevated modern package cannot be
                 // removed here, still make the requested classic menu usable.
-                let modern_ok =
-                    !modern::supported() || report("Windows 11 새 메뉴 해제", modern::unregister());
-                let classic_ok = report("클래식 메뉴", classic::register(&gui, &shell_icon));
+                let modern_ok = !modern::supported()
+                    || report("Unregister Windows 11 menu", modern::unregister());
+                let classic_ok = report("Classic menu", classic::register(&gui, &shell_icon));
                 if classic_ok {
-                    println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
+                    println!("Restart File Explorer if the menu does not appear immediately.");
                 }
                 return modern_ok && classic_ok;
             }
             // Keep the registry command for "Show more options". The packaged
             // command supplies the Windows 11 surface but is not guaranteed to
             // be included in the classic surface.
-            let classic_ok = report("클래식 메뉴", classic::register(&gui, &shell_icon));
+            let classic_ok = report("Classic menu", classic::register(&gui, &shell_icon));
             if !modern::supported() {
                 println!(
-                    "[건너뜀] Windows 11 새 메뉴: Windows 11의 64비트(x64/ARM64) 빌드에서만 지원합니다"
+                    "[SKIPPED] Windows 11 menu: supported only by 64-bit (x64/ARM64) builds on Windows 11"
                 );
                 return classic_ok;
             }
@@ -100,42 +100,42 @@ fn run(command: Command) -> bool {
                 .into_iter()
                 .find(|path| !path.is_file());
             let modern_ok = report(
-                "Windows 11 새 메뉴",
+                "Windows 11 menu",
                 match missing {
-                    Some(path) => Err(format!("{}이(가) 없습니다", path.display())),
+                    Some(path) => Err(format!("{} does not exist", path.display())),
                     None => modern::register(&package, &dir),
                 },
             );
             if modern_ok {
                 // Explorer loads packaged menu extensions only when it starts.
-                println!("새 메뉴는 탐색기를 다시 시작하거나 다시 로그인해야 나타납니다.");
+                println!("Restart File Explorer or sign in again to show the Windows 11 menu.");
                 return classic_ok;
             } else if classic_ok {
-                println!("메뉴가 바로 보이지 않으면 탐색기를 다시 시작하세요.");
+                println!("Restart File Explorer if the menu does not appear immediately.");
             }
             classic_ok
         }
         Command::Unregister => {
-            let mut ok = report("클래식 메뉴 해제", classic::unregister());
+            let mut ok = report("Unregister classic menu", classic::unregister());
             if modern::supported() {
-                ok &= report("Windows 11 새 메뉴 해제", modern::unregister());
+                ok &= report("Unregister Windows 11 menu", modern::unregister());
             }
             ok
         }
         Command::Status => {
             match classic::registered_command() {
-                Some(command) => println!("클래식 메뉴: 등록됨 ({command})"),
-                None => println!("클래식 메뉴: 등록 안 됨"),
+                Some(command) => println!("Classic menu: registered ({command})"),
+                None => println!("Classic menu: not registered"),
             }
             if !modern::supported() {
-                println!("Windows 11 새 메뉴: 이 Windows 또는 32비트 빌드에서는 지원하지 않음");
+                println!("Windows 11 menu: unsupported on this Windows version or 32-bit build");
                 return true;
             }
             match modern::installed() {
-                Ok(Some(info)) => println!("Windows 11 새 메뉴: 설치됨 ({info})"),
-                Ok(None) => println!("Windows 11 새 메뉴: 설치 안 됨"),
+                Ok(Some(info)) => println!("Windows 11 menu: installed ({info})"),
+                Ok(None) => println!("Windows 11 menu: not installed"),
                 Err(e) => {
-                    eprintln!("Windows 11 새 메뉴: 확인 실패 ({e})");
+                    eprintln!("Windows 11 menu: status check failed ({e})");
                     return false;
                 }
             }
@@ -146,7 +146,7 @@ fn run(command: Command) -> bool {
 
 #[cfg(not(windows))]
 fn run(_command: Command) -> bool {
-    eprintln!("탐색기 메뉴는 Windows 전용입니다.");
+    eprintln!("Explorer menus are supported only on Windows.");
     false
 }
 

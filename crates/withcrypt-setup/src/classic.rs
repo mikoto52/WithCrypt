@@ -40,9 +40,9 @@ pub fn command_line(exe: &str, flag: &str) -> String {
 fn exe_string(exe: &Path) -> Result<&str, String> {
     let exe = exe
         .to_str()
-        .ok_or("실행 파일 경로가 UTF-8이 아니어서 등록할 수 없습니다")?;
+        .ok_or("The executable path is not valid UTF-8 and cannot be registered")?;
     if exe.contains('"') {
-        return Err("실행 파일 경로에 큰따옴표가 있어 등록할 수 없습니다".into());
+        return Err("The executable path contains a double quote and cannot be registered".into());
     }
     Ok(exe)
 }

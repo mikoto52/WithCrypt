@@ -56,7 +56,7 @@ fn powershell(body: &str) -> Result<String, String> {
         ])
         .arg(script)
         .output()
-        .map_err(|e| format!("PowerShell을 실행할 수 없습니다: {e}"))?;
+        .map_err(|e| format!("Could not start PowerShell: {e}"))?;
     let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if output.status.success() {
         Ok(text)
@@ -77,7 +77,7 @@ pub fn installed() -> Result<Option<String>, String> {
     // An unsigned package installed from an elevated prompt is hidden from a
     // non-elevated Get-AppxPackage, but its packaged COM registration (which
     // Explorer uses) is still visible to the user.
-    Ok(packaged_com_registration().map(|name| format!("{name} (관리자 권한 설치)")))
+    Ok(packaged_com_registration().map(|name| format!("{name} (installed as administrator)")))
 }
 
 /// Full package name from the user's packaged COM catalog, if registered.
@@ -93,8 +93,12 @@ fn packaged_com_registration() -> Option<String> {
 
 /// Installs the package with this folder as its external location.
 pub fn register(package: &Path, external: &Path) -> Result<(), String> {
-    let package = package.to_str().ok_or("패키지 경로가 UTF-8이 아닙니다")?;
-    let external = external.to_str().ok_or("설치 경로가 UTF-8이 아닙니다")?;
+    let package = package
+        .to_str()
+        .ok_or("The package path is not valid UTF-8")?;
+    let external = external
+        .to_str()
+        .ok_or("The installation path is not valid UTF-8")?;
     // Re-registering replaces an older registration pointing elsewhere.
     unregister()?;
     powershell(&format!(
@@ -117,8 +121,8 @@ pub fn unregister() -> Result<(), String> {
     // silently removes nothing. Report it instead of claiming success.
     if registered() {
         return Err(
-            "관리자 권한으로 설치된 패키지라 지금 권한으로는 해제할 수 없습니다. \
-             관리자 권한 명령 프롬프트에서 다시 실행하세요."
+            "The package was installed with administrator privileges and cannot be removed with the current permissions. \
+             Run this command again from an administrator command prompt."
                 .into(),
         );
     }
@@ -135,13 +139,13 @@ fn explain(error: String) -> String {
     // 0x80073D2B: an unsigned package with an executable activation (ours has
     // one: the Application entry) installs only for all users, i.e. elevated.
     if error.contains("0x80073D2B") {
-        "서명되지 않은 패키지는 관리자 권한에서만 설치할 수 있습니다 (0x80073D2B). \
-         Windows 11 새 메뉴가 필요하면 관리자 권한 명령 프롬프트에서 다시 실행하거나 \
-         서명된 패키지를 사용하세요."
+        "Unsigned packages can be installed only with administrator privileges (0x80073D2B). \
+         To enable the Windows 11 menu, run this command again from an administrator command prompt \
+         or use a signed package."
             .to_owned()
     // 0x80073CF9 / 0x80070005: unsigned packages with code may need an elevated shell.
     } else if error.contains("0x80070005") || error.contains("0x80073CF9") {
-        format!("{error}\n관리자 권한 명령 프롬프트에서 다시 실행해 보세요.")
+        format!("{error}\nTry running this command again from an administrator command prompt.")
     } else {
         error
     }
