@@ -1197,13 +1197,27 @@ fn parse_launch(args: &[std::ffi::OsString]) -> Option<Launch> {
     }
 }
 fn main() {
-    if let Err(error) = run() {
-        rfd::MessageDialog::new()
-            .set_title("WithCrypt 시작 오류")
-            .set_description(format!("프로그램을 시작할 수 없습니다.\n\n{error}"))
-            .set_level(rfd::MessageLevel::Error)
-            .show();
+    match std::panic::catch_unwind(run) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => show_startup_error(&error.to_string()),
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("알 수 없는 내부 오류");
+            show_startup_error(message);
+            std::process::exit(101);
+        }
     }
+}
+
+fn show_startup_error(error: &str) {
+    rfd::MessageDialog::new()
+        .set_title("WithCrypt 시작 오류")
+        .set_description(format!("프로그램을 시작할 수 없습니다.\n\n{error}"))
+        .set_level(rfd::MessageLevel::Error)
+        .show();
 }
 
 /// Picks the window from the command line and runs the egui event loop.
