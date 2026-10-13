@@ -1,0 +1,28 @@
+[package]
+name = "withcrypt-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+aes-gcm = { version = "0.10.3", features = ["zeroize"] }
+aes = { version = "0.8.4", features = ["zeroize"] }
+chacha20poly1305 = "0.10.1"
+argon2 = { version = "0.5.3", features = ["zeroize"] }
+hkdf = "0.12.4"
+sha2 = "0.10.9"
+hmac = "0.12.1"
+zeroize.workspace = true
+getrandom = "0.3"
+thiserror = "2"
+same-file = "1"
+sha1 = "0.10.6"
+flate2 = "1.1"
+subtle = "2.6"
+pbkdf2 = "0.12"
+
+[dev-dependencies]
+tempfile = "3"
+hex = "0.4"

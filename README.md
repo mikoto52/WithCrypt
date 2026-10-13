@@ -1,0 +1,87 @@
+# WithCrypt
+
+Rust 기반 스트리밍 파일 암호화 프로그램. CLI `withcrypt`와 데스크톱 앱 `WithCrypt`가 같은 ESB v1 코어 및 파일 트랜잭션을 사용합니다.
+
+- XChaCha20-Poly1305(기본), AES-256-GCM 선택. 복호화·검증은 헤더에서 자동 판별합니다.
+- Argon2id + HKDF-SHA256, 레코드 AEAD, 암호화된 전체 원본 HMAC-SHA256.
+- 4 MiB 청크. 파일 전체를 메모리에 올리지 않습니다.
+- 원본 보존, 기존 출력 보호. 결과는 대상 폴더에 바로 쓰고, 완전 검증에 실패하거나 취소하면 삭제합니다.
+- GUI는 작업 하나를 별도 스레드에서 처리하며 비밀번호 확인·표시·진행률·취소를 제공합니다.
+
+## 빌드와 실행
+
+Rust 1.99.0 stable을 사용합니다. `rust-toolchain.toml`과 `Cargo.lock`을 함께 유지하세요. MSRV는 검증 범위를 분명히 하기 위해 동일한 1.99입니다. 기본 `cargo build`는 CLI와 코어만 빌드합니다.
+
+```sh
+cargo build --release --locked -p withcrypt-cli
+cargo run --release --locked -p withcrypt-gui
+
+./target/release/withcrypt encrypt original.bin # original.bin.esb 생성
+./target/release/withcrypt encrypt original.bin --output aes.esb --algorithm aes-256-gcm
+mkdir restored
+./target/release/withcrypt decrypt original.bin.esb --output restored
+./target/release/withcrypt verify original.bin.esb
+```
+
+비밀번호는 터미널에서 에코 없이 입력합니다. 암호화 때 두 번 입력합니다. 공백과 유니코드를 그대로 사용하며 빈 비밀번호는 거부합니다. 인자·환경변수·stdin 파이프로 비밀번호를 전달하는 기능은 없습니다. 비대화형 실행은 즉시 오류를 반환합니다. 작업 중 Ctrl-C로 취소할 수 있으며 Argon2 실행 중 취소는 KDF가 끝나면 반영됩니다.
+
+GUI의 파일 선택 버튼은 유니코드로 표현할 수 없는 실제 파일 경로도 보존합니다. Linux에서 한글 표시용 `fonts-noto-cjk` 또는 `fonts-nanum`을 설치하세요. GUI가 읽는 헤더 알고리즘은 인증 전에는 미검증 정보로 표시됩니다. 암호화·복호화 화면에 출력 경로 입력란은 없으며 시작을 누르면 저장 대화상자를 표시합니다. 복호화는 입력한 비밀번호로 암호화된 헤더의 원본 파일명을 먼저 인증·복호화하고, 확장자를 포함한 이름을 대화상자의 기본값으로 채웁니다. 사용자가 이름과 위치를 바꿀 수 있습니다. 잘못된 비밀번호이면 저장 대화상자를 열지 않습니다.
+
+CLI 암호화의 `--output`은 선택 사항이며 생략하면 원본과 같은 디렉터리에 `<입력파일명>.esb`를 만듭니다. 복호화의 `--output`은 필수이며 **기존 출력 디렉터리**를 지정합니다. 그 안에 인증된 원본 파일명으로 복원합니다. 같은 이름의 파일이 있으면 덮어쓰지 않고 실패합니다. 원본 이름이 없는 기존 ESB나 이식 불가능한 이름을 생략한 ESB는 GUI에서 저장 이름을 지정하세요(기본값 `decrypted.bin`).
+
+## AxCrypt 파일 가져오기
+
+GUI와 CLI의 복호화·검증 기능에서 AxCrypt 1.x/2.x `.axx` 파일을 지원합니다. 헤더로 형식을 자동 판별하며 압축을 해제하고 원본 파일명을 복원합니다. 예: `withcrypt decrypt old.axx --output restored`. 출력 디렉터리는 미리 만들어야 합니다. GUI에서는 무결성 확인 후 저장 대화상자에서 이름과 위치를 선택합니다. 탐색기의 복호화 메뉴에서도 사용할 수 있으며 결과는 원본과 같은 폴더에 저장합니다.
+
+1.x는 ASCII 비밀번호, 2.x는 UTF-8 비밀번호를 지원합니다. 실제 검증 범위 및 제한은 [1.x 문서](docs/axx-v1.md), [2.x 문서](docs/axx-v2.md)를 참고하세요. 2.x는 Xecrets CLI가 생성한 샘플로 검증했습니다.
+
+## Windows 탐색기 메뉴
+
+모든 파일(`.esb`, `.axx` 제외)에 "WithCrypt로 암호화", `.esb`·`.axx` 파일에 "WithCrypt로 복호화" 메뉴를 추가할 수 있습니다. 메뉴로 실행하면 비밀번호만 묻는 작은 창이 뜨고, 저장 위치를 묻지 않고 원본과 같은 폴더에 결과를 만듭니다(암호화: `<원본파일명>.esb`, 복호화: 저장된 원본 파일명). 같은 이름의 파일이 이미 있으면 덮어쓰지 않고 오류로 멈춥니다.
+
+```powershell
+.\scripts\build-windows.ps1 -Architecture x64    # 빌드 + 아이콘 복사 + 테스트용 MSIX 생성 (x64, x86, arm64)
+.\target\x86_64-pc-windows-msvc\release\withcrypt-setup.exe register
+withcrypt-setup.exe register                 # Windows 11 새 메뉴 + 클래식 메뉴 등록
+withcrypt-setup.exe register --classic-only  # 클래식 메뉴만 (HKCU, 관리자 권한 불필요)
+withcrypt-setup.exe status
+withcrypt-setup.exe unregister
+```
+
+Windows 11의 새 메뉴(최상위)는 sparse package `WithCrypt.Shell.msix`와 `ShellIcon.ico`가 실행 파일과 같은 폴더에 있어야 합니다. `scripts/build-windows.ps1`은 릴리스 빌드부터 두 파일 준비까지 한 번에 처리합니다. 서명 인자 없이 실행하면 서명 없는 테스트용 패키지를 만듭니다. x64·x86(32비트)·ARM64 빌드 방법, 시험 서명, 설치 프로그램 만들기는 [Windows 빌드 매뉴얼](docs/build-windows.md)을 참고하세요.
+
+복호화 결과는 진행 중에도 최종 파일 이름으로 보입니다. "완료"가 표시되기 전의 파일은 아직 전체 검증 전이므로 사용하지 마세요.
+
+## 종료 코드
+
+| 코드 | 의미 |
+|---|---|
+| 0 | 전체 처리 성공 |
+| 2 | 인자, 빈 비밀번호, 미지원 포맷 |
+| 3 | 비밀번호 오류 또는 인증·무결성 실패 |
+| 4 | I/O, 자원, 기존 출력, 입력 변경, 정리 실패 |
+| 130 | 사용자 취소 |
+
+## 검증
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+python3 tests/fixtures/check_vectors.py
+cargo run --release --locked -p withcrypt-core --example stress -- 4294967297
+```
+
+독립 벡터 검증에는 Python `cryptography>=44` 및 `pycryptodome`가 필요합니다. 일반 Rust 테스트에는 Python이 필요하지 않습니다. stress 예제는 생성형 입력을 용량 제한 파이프로 암호화하고 즉시 전체 검증하므로 실제 대용량 파일을 생성하지 않습니다. RAM 초과 테스트는 인자에 물리 RAM보다 큰 바이트 수를 지정하세요.
+
+상세 실행 결과와 미검증 항목은 [검증 기록](docs/validation.md), OS별 빌드·배포는 [배포 문서](docs/distribution.md)를 참조하세요. CI 설정의 존재는 세 OS에서 이미 통과했다는 뜻이 아닙니다.
+
+## 보안과 범위
+
+자체 ESB 컨테이너는 외부 보안 감사를 받지 않았습니다. 크기는 숨기지 않으며 약한 비밀번호의 오프라인 추측, 악성 OS, 스왑·덤프·SSD의 흔적을 완전히 방어하지 않습니다. 원본 삭제·덮어쓰기·보안 삭제, 폴더, 압축, 비밀번호 복구 서버, 네트워크·텔레메트리는 구현하지 않습니다. 파일 데이터 스트림 외 ACL·xattr·ADS·리소스 포크 등은 보존하지 않습니다.
+
+자세한 [포맷](docs/format-v1.md), [위협 모델](docs/security.md), [설계 결정](docs/adr/001-implementation.md)을 확인하세요. 코어의 저수준 `decrypt`는 전체 성공 전에 인증된 청크를 Writer에 전달하므로 일반 파일 작업은 `files::run`, `files::decrypt_into` 또는 `PreparedDecryption::save`의 파일 트랜잭션을 사용하세요.
+
+WithCrypt는 **MIT License**로 배포됩니다. 라이선스 전문은 [LICENSE](LICENSE)를 참조하세요. 의존성에는 각각의 라이선스가 적용됩니다.
+
+의존성 라이선스 확인 결과와 선택 사항은 [의존성 라이선스 기록](docs/dependency-licenses.md)에 정리했습니다.
